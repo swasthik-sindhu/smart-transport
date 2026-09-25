@@ -1256,9 +1256,9 @@ if (fs.existsSync(distPath)) {
 async function startServer() {
   try {
     await initDb();
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Rural Link Backend API connected to SQLite database`);
-      console.log(`📡 Server running on http://localhost:${PORT}`);
+      console.log(`📡 Server running on http://0.0.0.0:${PORT}`);
       console.log(`🩺 Health Check: http://localhost:${PORT}/api/health`);
     });
   } catch (err) {
