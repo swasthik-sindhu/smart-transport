@@ -3,7 +3,6 @@ services:
     name: rural-link
     runtime: node
     plan: free
-    region: singapore
     buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     envVars:
