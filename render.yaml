@@ -1,12 +1,13 @@
 services:
   - type: web
     name: rural-link
-    env: node
+    runtime: node
     plan: free
-    buildCommand: npm install && npm run build
+    region: singapore
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
