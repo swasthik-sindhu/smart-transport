@@ -4,15 +4,18 @@ import {
   ArrowRight, 
   Home, 
   Bus, 
+  Truck, 
   Sprout, 
   MapPin, 
   User, 
   ChevronDown, 
   LocateFixed, 
   Loader2, 
-  Check 
+  Check,
+  Languages
 } from 'lucide-react';
 import { KARNATAKA_LOCATIONS } from '../data/karnatakaRoutes';
+import { useLanguage } from '../context/LanguageContext';
 
 export default function NavigationControls({
   currentView,
@@ -24,10 +27,25 @@ export default function NavigationControls({
   currentLocation,
   onChangeLocation,
   onOpenProfile,
-  userName
+  userName,
+  userRole,
+  operatorType
 }) {
   const [isDetectingGps, setIsDetectingGps] = useState(false);
   const [gpsStatus, setGpsStatus] = useState('');
+  const { language, setLanguage, t } = useLanguage();
+
+  // Strict role and view-based link separation
+  const isTravelsRole = userRole === 'operator' && operatorType === 'travels';
+  const isTransportRole = userRole === 'operator' && operatorType === 'transport';
+
+  // 1. In passenger dashboard (or farmer role), traveller/transporter operator links must NOT be there.
+  // 2. In traveller dashboard (or travels role), farmer and passenger link must NOT be there.
+  // 3. In transporter dashboard (or transport role), travels, passenger, and farmer links must NOT be there.
+  const showPassenger = !isTravelsRole && !isTransportRole && currentView !== 'travels' && currentView !== 'transporter';
+  const showFarmer = !isTravelsRole && !isTransportRole && currentView !== 'travels' && currentView !== 'transporter';
+  const showTravels = (isTravelsRole || currentView === 'travels') && currentView !== 'passenger' && currentView !== 'farmer-link' && currentView !== 'transporter' && userRole !== 'farmer';
+  const showTransporter = (isTransportRole || currentView === 'transporter') && currentView !== 'passenger' && currentView !== 'farmer-link' && currentView !== 'travels' && userRole !== 'farmer';
 
   // Handle Real Live Location via Browser Geolocation API
   const handleDetectLiveLocation = (e) => {
@@ -111,37 +129,77 @@ export default function NavigationControls({
           }`}
         >
           <Home className="w-3.5 h-3.5" />
-          <span>Home</span>
+          <span>{t('home', 'Home')}</span>
         </button>
 
         {/* Passenger Dashboard Option */}
-        <button
-          onClick={() => onNavigate('passenger')}
-          className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-            currentView === 'passenger'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <Bus className="w-3.5 h-3.5" />
-          <span>Passenger Dashboard</span>
-        </button>
+        {showPassenger && (
+          <button
+            onClick={() => onNavigate('passenger')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+              currentView === 'passenger'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Bus className="w-3.5 h-3.5" />
+            <span>{t('passengerDashboard', 'Passenger Dashboard')}</span>
+          </button>
+        )}
 
         {/* Farmer Link Option */}
-        <button
-          onClick={() => onNavigate('farmer-link')}
-          className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-            currentView === 'farmer-link'
-              ? 'bg-emerald-700 text-white shadow-sm'
-              : 'text-slate-600 hover:text-emerald-800 hover:bg-emerald-50'
-          }`}
-        >
-          <Sprout className="w-3.5 h-3.5 text-amber-500" />
-          <span>Farmer Link</span>
-          <span className="text-[10px] bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded-full font-bold ml-1">
-            Freight
-          </span>
-        </button>
+        {showFarmer && (
+          <button
+            onClick={() => onNavigate('farmer-link')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+              currentView === 'farmer-link'
+                ? 'bg-emerald-700 text-white shadow-sm'
+                : 'text-slate-600 hover:text-emerald-800 hover:bg-emerald-50'
+            }`}
+          >
+            <Sprout className="w-3.5 h-3.5 text-amber-500" />
+            <span>{t('farmerLink', 'Farmer Link')}</span>
+            <span className="text-[10px] bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded-full font-bold ml-1">
+              {t('freight', 'Freight')}
+            </span>
+          </button>
+        )}
+
+        {/* Travels Operator Dashboard Option */}
+        {showTravels && (
+          <button
+            onClick={() => onNavigate('travels')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+              currentView === 'travels'
+                ? 'bg-indigo-700 text-white shadow-sm'
+                : 'text-slate-600 hover:text-indigo-800 hover:bg-indigo-50'
+            }`}
+          >
+            <Bus className="w-3.5 h-3.5 text-indigo-400" />
+            <span>{t('travelsDashboard', 'Travels Dashboard')}</span>
+            <span className="text-[10px] bg-indigo-100 text-indigo-900 px-1.5 py-0.2 rounded-full font-bold ml-1">
+              {t('operator', 'Operator')}
+            </span>
+          </button>
+        )}
+
+        {/* Transporter Operator Dashboard Option */}
+        {showTransporter && (
+          <button
+            onClick={() => onNavigate('transporter')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+              currentView === 'transporter'
+                ? 'bg-emerald-700 text-white shadow-sm'
+                : 'text-slate-600 hover:text-emerald-800 hover:bg-emerald-50'
+            }`}
+          >
+            <Truck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>{t('transporterDashboard', 'Transporter Dashboard')}</span>
+            <span className="text-[10px] bg-emerald-100 text-emerald-900 px-1.5 py-0.2 rounded-full font-bold ml-1">
+              {t('freight', 'Freight')}
+            </span>
+          </button>
+        )}
       </div>
 
       {/* Right: Current Live Location & Profile */}
@@ -235,9 +293,43 @@ export default function NavigationControls({
           <div className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">
             {userName ? userName.charAt(0).toUpperCase() : 'U'}
           </div>
-          <span className="max-w-[90px] truncate">{userName || 'Profile'}</span>
-          <span className="text-[10px] text-blue-600 bg-blue-100 px-1 py-0.5 rounded font-normal">Edit</span>
+          <span className="max-w-[90px] truncate">{userName || t('profile', 'Profile')}</span>
+          <span className="text-[10px] text-blue-600 bg-blue-100 px-1 py-0.5 rounded font-normal">
+            {t('edit', 'Edit')}
+          </span>
         </button>
+
+        {/* Language Switcher Option (Given near the Profile) */}
+        <div 
+          className="flex items-center bg-slate-100 border border-slate-200 rounded-xl p-0.5 shadow-sm"
+          title={language === 'en' ? 'ಕನ್ನಡಕ್ಕೆ ಬದಲಾಯಿಸಿ' : 'Switch to English'}
+        >
+          <div className="pl-1.5 pr-1 text-slate-500 flex items-center">
+            <Languages className="w-3.5 h-3.5 text-blue-600" />
+          </div>
+          <button
+            type="button"
+            onClick={() => setLanguage('en')}
+            className={`px-2 py-1 rounded-lg text-xs font-bold transition-all ${
+              language === 'en'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+            }`}
+          >
+            EN
+          </button>
+          <button
+            type="button"
+            onClick={() => setLanguage('kn')}
+            className={`px-2 py-1 rounded-lg text-xs font-bold transition-all ${
+              language === 'kn'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+            }`}
+          >
+            ಕನ್ನಡ
+          </button>
+        </div>
       </div>
     </div>
   );

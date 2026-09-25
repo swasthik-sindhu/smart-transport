@@ -15,8 +15,11 @@ import {
   Weight, 
   Users 
 } from 'lucide-react';
+import { apiRegister } from '../services/api';
+import { useLanguage } from '../context/LanguageContext';
 
 export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin }) {
+  const { t } = useLanguage();
   // Role: 'farmer' (Farmer / Passenger) or 'operator' (Operator)
   const [role, setRole] = useState('farmer');
 
@@ -183,9 +186,9 @@ export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin }) {
     <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-w-2xl mx-auto">
       {/* Header Banner */}
       <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-slate-900 p-6 text-white text-center">
-        <h2 className="text-2xl font-bold tracking-tight">Create an Account</h2>
+        <h2 className="text-2xl font-bold tracking-tight">{t('register', 'Create an Account')}</h2>
         <p className="text-blue-100 text-sm mt-1">
-          Join <span className="font-semibold text-sky-200">Rural Link</span> for smart rural transport & logistics
+          {t('appSubtitle', 'Join Rural Link for smart rural transport & logistics')}
         </p>
       </div>
 
@@ -193,7 +196,7 @@ export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin }) {
         {/* Step 1: Select Main Role */}
         <div className="mb-6">
           <label className="block text-sm font-semibold text-slate-700 mb-2">
-            Select Your Role <span className="text-rose-500">*</span>
+            {t('chooseRole', 'Select Your Role')} <span className="text-rose-500">*</span>
           </label>
           <div className="grid grid-cols-2 gap-4">
             <button
@@ -209,9 +212,9 @@ export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin }) {
                 <Sprout className="w-5 h-5" />
               </div>
               <div>
-                <div className="font-semibold text-sm">Farmer / Passenger</div>
+                <div className="font-semibold text-sm">{t('farmerRole', 'Farmer / Passenger')}</div>
                 <div className="text-xs text-slate-500 mt-0.5">
-                  Ship farm produce or book rural passenger rides
+                  {t('farmerRoleDesc', 'Ship farm produce or book rural passenger rides')}
                 </div>
               </div>
             </button>
@@ -229,9 +232,9 @@ export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin }) {
                 <Truck className="w-5 h-5" />
               </div>
               <div>
-                <div className="font-semibold text-sm">Vehicle Operator</div>
+                <div className="font-semibold text-sm">{t('operatorRole', 'Vehicle Operator')}</div>
                 <div className="text-xs text-slate-500 mt-0.5">
-                  Travels (passenger) or Transport (freight)
+                  {t('operatorRoleDesc', 'Travels (passenger) or Transport (freight)')}
                 </div>
               </div>
             </button>
@@ -590,19 +593,19 @@ export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin }) {
             type="submit"
             className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-sm shadow-md transition-all flex items-center justify-center space-x-2"
           >
-            <span>Complete Registration</span>
+            <span>{t('completeRegistration', 'Complete Registration')}</span>
           </button>
         </form>
 
         {/* Footer Link to Login */}
         <div className="mt-6 text-center text-xs text-slate-600 border-t border-slate-200 pt-4">
-          Already registered?{' '}
+          {t('alreadyRegistered', 'Already registered?')}{' '}
           <button
             type="button"
             onClick={onSwitchToLogin}
             className="text-blue-600 font-semibold hover:underline"
           >
-            Login with your Name & Password
+            {t('loginTab', 'Login with your Name & Password')}
           </button>
         </div>
       </div>

@@ -1,8 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
-import { X, Navigation, MapPin, Bus, Clock, ShieldCheck, CheckCircle2, Ticket } from 'lucide-react';
+import { X, Navigation, MapPin, Bus, Clock, ShieldCheck, CheckCircle2, Ticket, Radio } from 'lucide-react';
 
-export default function RouteMapModal({ isOpen, onClose, bus, onBookFromMap }) {
+export default function RouteMapModal({ isOpen, onClose, bus, onBookFromMap, bookedTicket = null }) {
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
 
@@ -113,11 +113,17 @@ export default function RouteMapModal({ isOpen, onClose, bus, onBookFromMap }) {
               <Bus className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                 <h3 className="font-bold text-base">{bus.busName}</h3>
                 <span className="text-xs bg-blue-950 text-sky-300 font-mono px-2 py-0.5 rounded border border-blue-700">
                   {bus.vehicleRegNo}
                 </span>
+                {bookedTicket && (
+                  <span className="text-[11px] bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 px-2 py-0.5 rounded-full font-bold flex items-center space-x-1">
+                    <Radio className="w-3 h-3 text-emerald-400 animate-pulse" />
+                    <span>Tracking Booked Ticket #{bookedTicket.bookingId}</span>
+                  </span>
+                )}
               </div>
               <p className="text-xs text-sky-200">
                 Route: <span className="font-semibold text-white">{bus.source}</span> → <span className="font-semibold text-white">{bus.destination}</span> ({bus.optimalRoute.totalDistanceKm} km)
@@ -213,13 +219,25 @@ export default function RouteMapModal({ isOpen, onClose, bus, onBookFromMap }) {
           </div>
         </div>
 
-        {/* Footer with DIRECT BOOKING BUTTON */}
+        {/* Footer */}
         <div className="p-3.5 bg-white border-t border-slate-200 flex items-center justify-between text-xs">
-          <div>
-            <span className="text-slate-500 block text-[11px]">Seat Fare:</span>
-            <span className="font-extrabold text-slate-900 text-base">₹{bus.fare}</span>
-            <span className="text-slate-500 text-[11px]"> ({bus.availableSeats} seats left)</span>
-          </div>
+          {bookedTicket ? (
+            <div>
+              <span className="text-slate-500 block text-[11px]">Passenger Ticket Confirmed:</span>
+              <span className="font-extrabold text-slate-900 text-sm">
+                {bookedTicket.passengerName || 'Passenger'} • {bookedTicket.seatCount} Seat{bookedTicket.seatCount > 1 ? 's' : ''} (₹{bookedTicket.totalFare})
+              </span>
+              <span className="text-[10px] font-semibold text-emerald-600 block mt-0.5">
+                ● {bookedTicket.paymentStatus} • Reference: #{bookedTicket.bookingId}
+              </span>
+            </div>
+          ) : (
+            <div>
+              <span className="text-slate-500 block text-[11px]">Seat Fare:</span>
+              <span className="font-extrabold text-slate-900 text-base">₹{bus.fare}</span>
+              <span className="text-slate-500 text-[11px]"> ({bus.availableSeats} seats left)</span>
+            </div>
+          )}
 
           <div className="flex items-center space-x-2">
             <button
@@ -228,17 +246,26 @@ export default function RouteMapModal({ isOpen, onClose, bus, onBookFromMap }) {
             >
               Close
             </button>
-            <button
-              onClick={() => {
-                onClose();
-                if (onBookFromMap) onBookFromMap(bus);
-              }}
-              disabled={bus.availableSeats === 0}
-              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-xl font-bold transition-all shadow-md flex items-center space-x-1.5"
-            >
-              <Ticket className="w-4 h-4" />
-              <span>Book Ticket on this Route</span>
-            </button>
+            {!bookedTicket ? (
+              <button
+                onClick={() => {
+                  onClose();
+                  if (onBookFromMap) onBookFromMap(bus);
+                }}
+                disabled={bus.availableSeats === 0}
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-xl font-bold transition-all shadow-md flex items-center space-x-1.5"
+              >
+                <Ticket className="w-4 h-4" />
+                <span>Book Ticket on this Route</span>
+              </button>
+            ) : (
+              <div className="flex items-center space-x-2">
+                <span className="hidden sm:inline-flex items-center space-x-1 px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold rounded-xl text-xs">
+                  <Radio className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                  <span>Live GPS Broadcaster Active</span>
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { User, Lock, AlertCircle, LogIn, Sparkles, Sprout, Truck, Bus } from 'lucide-react';
+import { useLanguage } from '../context/LanguageContext';
 
 export default function LoginForm({ prefilledName = '', onLoginSuccess, onSwitchToRegister }) {
+  const { t } = useLanguage();
   const [name, setName] = useState(prefilledName);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -113,9 +115,9 @@ export default function LoginForm({ prefilledName = '', onLoginSuccess, onSwitch
     <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-w-md mx-auto">
       {/* Header Banner */}
       <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-slate-900 p-6 text-white text-center">
-        <h2 className="text-2xl font-bold tracking-tight">Welcome Back</h2>
+        <h2 className="text-2xl font-bold tracking-tight">{t('loginToRuralLink', 'Welcome Back')}</h2>
         <p className="text-blue-100 text-sm mt-1">
-          Login using your registered Name and Password
+          {t('loginTab', 'Login using your registered Name and Password')}
         </p>
       </div>
 
@@ -124,7 +126,7 @@ export default function LoginForm({ prefilledName = '', onLoginSuccess, onSwitch
           {/* Name Field */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Registered Name <span className="text-rose-500">*</span>
+              {t('fullName', 'Registered Name')} <span className="text-rose-500">*</span>
             </label>
             <div className="relative">
               <User className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
@@ -133,12 +135,12 @@ export default function LoginForm({ prefilledName = '', onLoginSuccess, onSwitch
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Enter your exact registered name"
+                placeholder={t('fullName', 'Enter your exact registered name')}
                 className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
               />
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              (You can also enter your registered Phone or Email)
+              (Phone / Email / Name)
             </p>
           </div>
 
@@ -146,7 +148,7 @@ export default function LoginForm({ prefilledName = '', onLoginSuccess, onSwitch
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="block text-xs font-semibold text-slate-700">
-                Password <span className="text-rose-500">*</span>
+                {t('password', 'Password')} <span className="text-rose-500">*</span>
               </label>
             </div>
             <div className="relative">
@@ -156,7 +158,7 @@ export default function LoginForm({ prefilledName = '', onLoginSuccess, onSwitch
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your account password"
+                placeholder={t('password', 'Enter your account password')}
                 className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
               />
             </div>
@@ -176,7 +178,7 @@ export default function LoginForm({ prefilledName = '', onLoginSuccess, onSwitch
             className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-sm shadow-md transition-all flex items-center justify-center space-x-2 mt-2"
           >
             <LogIn className="w-4 h-4" />
-            <span>Login to Dashboard</span>
+            <span>{t('login', 'Login to Dashboard')}</span>
           </button>
         </form>
 
@@ -184,7 +186,7 @@ export default function LoginForm({ prefilledName = '', onLoginSuccess, onSwitch
         <div className="mt-6 pt-5 border-t border-slate-200">
           <div className="flex items-center space-x-1.5 text-xs font-semibold text-slate-500 mb-2.5">
             <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-            <span>Hackathon Quick-Test Credentials (Click to Auto-fill):</span>
+            <span>{t('quickDemoAccounts', 'Quick Demo Login Accounts')}:</span>
           </div>
           <div className="grid grid-cols-3 gap-2">
             <button
@@ -193,7 +195,7 @@ export default function LoginForm({ prefilledName = '', onLoginSuccess, onSwitch
               className="p-2 border border-slate-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 text-[11px] text-slate-700 text-center transition-colors"
             >
               <Sprout className="w-4 h-4 text-emerald-600 mx-auto mb-1" />
-              <div className="font-semibold truncate">Farmer</div>
+              <div className="font-semibold truncate">{t('farmerRole', 'Farmer')}</div>
               <div className="text-[10px] text-slate-400">Ramesh</div>
             </button>
 
@@ -203,7 +205,7 @@ export default function LoginForm({ prefilledName = '', onLoginSuccess, onSwitch
               className="p-2 border border-slate-200 rounded-lg hover:border-indigo-500 hover:bg-indigo-50 text-[11px] text-slate-700 text-center transition-colors"
             >
               <Bus className="w-4 h-4 text-indigo-600 mx-auto mb-1" />
-              <div className="font-semibold truncate">Travels</div>
+              <div className="font-semibold truncate">{t('travelsDashboard', 'Travels')}</div>
               <div className="text-[10px] text-slate-400">Suresh</div>
             </button>
 
@@ -213,7 +215,7 @@ export default function LoginForm({ prefilledName = '', onLoginSuccess, onSwitch
               className="p-2 border border-slate-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 text-[11px] text-slate-700 text-center transition-colors"
             >
               <Truck className="w-4 h-4 text-blue-600 mx-auto mb-1" />
-              <div className="font-semibold truncate">Transport</div>
+              <div className="font-semibold truncate">{t('transporterDashboard', 'Transport')}</div>
               <div className="text-[10px] text-slate-400">Balaji Cargo</div>
             </button>
           </div>
@@ -221,13 +223,13 @@ export default function LoginForm({ prefilledName = '', onLoginSuccess, onSwitch
 
         {/* Switch to Register */}
         <div className="mt-6 text-center text-xs text-slate-600">
-          New user?{' '}
+          {t('needAccount', 'New user?')}{' '}
           <button
             type="button"
             onClick={onSwitchToRegister}
             className="text-blue-600 font-semibold hover:underline"
           >
-            Create an Account (Register)
+            {t('register', 'Create an Account (Register)')}
           </button>
         </div>
       </div>

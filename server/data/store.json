@@ -1,0 +1,272 @@
+{
+  "users": [
+    {
+      "id": "DEMO-FARMER-1",
+      "role": "farmer",
+      "name": "Ramesh Patel",
+      "phone": "9876543210",
+      "email": "ramesh.farmer@rurallink.in",
+      "password": "password123",
+      "location": "Kukke Subrahmanya, Dakshina Kannada",
+      "operatorType": null,
+      "registeredAt": "2026-09-25T17:39:25.588Z"
+    },
+    {
+      "id": "DEMO-TRAVELS-1",
+      "role": "operator",
+      "name": "Suresh Kumar",
+      "phone": "9845012345",
+      "email": "suresh.travels@rurallink.in",
+      "password": "password123",
+      "operatorType": "travels",
+      "vehicleName": "Force Cruiser Rural Maxi",
+      "vehicleRegNo": "KA-21-E-4589",
+      "seatingCapacity": 18,
+      "upiId": "sureshtravels@okaxis",
+      "registeredAt": "2026-09-25T17:39:25.590Z"
+    },
+    {
+      "id": "DEMO-CARGO-1",
+      "role": "operator",
+      "name": "Balaji Transport Co.",
+      "phone": "9741234567",
+      "email": "balaji.cargo@rurallink.in",
+      "password": "password123",
+      "operatorType": "transport",
+      "vehicleName": "Tata Ace Gold (Chota Hathi)",
+      "vehicleRegNo": "KA-19-MH-8842",
+      "loadingCapacity": "1.5 Tons (1500 kg)",
+      "upiId": "balajitransport@upi",
+      "registeredAt": "2026-09-25T17:39:25.590Z"
+    }
+  ],
+  "bookings": [],
+  "freightVehicles": [
+    {
+      "id": "VEH-01",
+      "operatorName": "Balaji Rural Cargo",
+      "driverName": "Manjunath Gowda",
+      "driverPhone": "9844012399",
+      "vehicleName": "Tata Ace Gold (Chota Hathi)",
+      "vehicleRegNo": "KA-19-MH-8842",
+      "vehicleType": "Mini Truck (1.5 Ton)",
+      "baseLocation": "Kukke Subrahmanya",
+      "destinationMarket": "Dharmasthala / Mangalore APMC",
+      "totalCapacityQuintals": 15,
+      "availableCapacityQuintals": 7,
+      "ratePerQuintal": 45,
+      "upiId": "balajitransport@upi",
+      "departureSchedule": "Today, 04:30 PM",
+      "rating": 4.8
+    },
+    {
+      "id": "VEH-02",
+      "operatorName": "Netravati Krishi Logistics",
+      "driverName": "Shekar Poojary",
+      "driverPhone": "9880098765",
+      "vehicleName": "Mahindra Bolero Maxi Truck Plus",
+      "vehicleRegNo": "KA-21-B-3312",
+      "vehicleType": "Pickup Truck (2.0 Ton)",
+      "baseLocation": "Dharmasthala / Ujire",
+      "destinationMarket": "Mangalore Baikampady APMC",
+      "totalCapacityQuintals": 20,
+      "availableCapacityQuintals": 12,
+      "ratePerQuintal": 40,
+      "upiId": "netravati.cargo@okaxis",
+      "departureSchedule": "Tonight, 08:00 PM (Night Mandi Express)",
+      "rating": 4.9
+    },
+    {
+      "id": "VEH-03",
+      "operatorName": "Cauvery Grama Vahini",
+      "driverName": "Basavarajappa",
+      "driverPhone": "9741001122",
+      "vehicleName": "Swaraj 855 Tractor Trolley",
+      "vehicleRegNo": "KA-11-TR-9040",
+      "vehicleType": "Heavy Agricultural Trolley (4.0 Ton)",
+      "baseLocation": "Maddur / Mandya",
+      "destinationMarket": "Mandya APMC Sugar & Jaggery Market",
+      "totalCapacityQuintals": 40,
+      "availableCapacityQuintals": 22,
+      "ratePerQuintal": 30,
+      "upiId": "basava.tractor@upi",
+      "departureSchedule": "Tomorrow, 06:00 AM (Early Auction)",
+      "rating": 4.7
+    },
+    {
+      "id": "VEH-04",
+      "operatorName": "Malnad Farmers Freight Co-op",
+      "driverName": "Girish Kumar",
+      "driverPhone": "9448123456",
+      "vehicleName": "Eicher Pro 2049 Light Truck",
+      "vehicleRegNo": "KA-13-A-6712",
+      "vehicleType": "Medium Freight Truck (3.5 Ton)",
+      "baseLocation": "Hassan / Sakleshpur",
+      "destinationMarket": "Yeshwanthpur APMC (Bengaluru)",
+      "totalCapacityQuintals": 35,
+      "availableCapacityQuintals": 18,
+      "ratePerQuintal": 65,
+      "upiId": "malnadfreight@okicici",
+      "departureSchedule": "Tonight, 10:00 PM",
+      "rating": 4.9
+    }
+  ],
+  "freightRequests": [
+    {
+      "id": "FR-KA-7008",
+      "farmerName": "swasthik",
+      "farmerPhone": "7975795907",
+      "cropType": "Arecanut & Coconuts",
+      "weightQuintals": 500,
+      "pickupLocation": "Ujire / Belthangady, Dakshina Kannada (GPS Live)",
+      "targetMandi": "Mandya APMC Sugar & Jaggery Market",
+      "deliverySchedule": "2026-09-26 • Morning Mandi Auction (06:00 AM - 09:00 AM)",
+      "handlingNotes": "Dry produce, moisture-proof tarpaulin required",
+      "assignedVehicle": {
+        "vehicleRegNo": "KA-19-MH-8842",
+        "driverName": "Manjunath Gowda",
+        "driverPhone": "9844012399",
+        "vehicleName": "Tata Ace Gold"
+      },
+      "status": "In Transit",
+      "liveTelemetry": {
+        "currentLocationName": "Ujire / Belthangady, Dakshina Kannada (GPS Live) Corridor Checkpost",
+        "lat": 12.8797,
+        "lng": 75.0344,
+        "speedKm": 42,
+        "direction": "Heading towards Mandya APMC Sugar & Jaggery Market via State Highway Link (Compass: 310° NW)",
+        "distanceRemainingKm": 34,
+        "etaMinutes": 45,
+        "milestones": [
+          {
+            "title": "Produce Picked up at Farm",
+            "status": "completed",
+            "time": "Just now"
+          },
+          {
+            "title": "Dispatched on Highway Corridor",
+            "status": "active",
+            "time": "In Progress"
+          },
+          {
+            "title": "Approaching Mandya APMC Sugar & Jaggery Market Gate",
+            "status": "pending",
+            "time": "Upcoming"
+          },
+          {
+            "title": "Weighbridge & Market Auction Delivery",
+            "status": "pending",
+            "time": "Scheduled"
+          }
+        ]
+      },
+      "postedAt": "2026-09-25T17:50:29.157Z"
+    },
+    {
+      "id": "FR-KA-1511",
+      "farmerName": "swasthik",
+      "farmerPhone": "7975795907",
+      "cropType": "Tomatoes & Vegetables",
+      "weightQuintals": 500,
+      "pickupLocation": "Maddur, Mandya",
+      "targetMandi": "Mysuru Bandipalya APMC",
+      "deliverySchedule": "2026-09-26 • Morning Mandi Auction (06:00 AM - 09:00 AM)",
+      "handlingNotes": "Dry produce, moisture-proof tarpaulin required",
+      "assignedVehicle": {
+        "vehicleRegNo": "KA-19-MH-8842",
+        "driverName": "Manjunath Gowda",
+        "driverPhone": "9844012399",
+        "vehicleName": "Tata Ace Gold"
+      },
+      "status": "In Transit",
+      "liveTelemetry": {
+        "currentLocationName": "Maddur, Mandya Corridor Checkpost",
+        "lat": 12.8797,
+        "lng": 75.0344,
+        "speedKm": 42,
+        "direction": "Heading towards Mysuru Bandipalya APMC via State Highway Link (Compass: 310° NW)",
+        "distanceRemainingKm": 34,
+        "etaMinutes": 45,
+        "milestones": [
+          {
+            "title": "Produce Picked up at Farm",
+            "status": "completed",
+            "time": "Just now"
+          },
+          {
+            "title": "Dispatched on Highway Corridor",
+            "status": "active",
+            "time": "In Progress"
+          },
+          {
+            "title": "Approaching Mysuru Bandipalya APMC Gate",
+            "status": "pending",
+            "time": "Upcoming"
+          },
+          {
+            "title": "Weighbridge & Market Auction Delivery",
+            "status": "pending",
+            "time": "Scheduled"
+          }
+        ]
+      },
+      "postedAt": "2026-09-25T17:43:48.743Z"
+    },
+    {
+      "id": "FR-KA-8801",
+      "farmerName": "Ramesh Patel",
+      "farmerPhone": "9876543210",
+      "cropType": "Arecanut & Tender Coconut",
+      "weightQuintals": 8.5,
+      "pickupLocation": "Kukke Subrahmanya Farm Yard",
+      "targetMandi": "Mangalore Baikampady APMC",
+      "deliverySchedule": "Tomorrow, Before 09:00 AM (Morning Auction)",
+      "handlingNotes": "Moisture sensitive, dry produce crates",
+      "assignedVehicle": {
+        "vehicleRegNo": "KA-19-MH-8842",
+        "driverName": "Manjunath Gowda",
+        "driverPhone": "9844012399",
+        "vehicleName": "Tata Ace Gold"
+      },
+      "status": "In Transit",
+      "liveTelemetry": {
+        "currentLocationName": "Approaching Bantwal B.C. Road Junction",
+        "lat": 12.8797,
+        "lng": 75.0344,
+        "speedKm": 44,
+        "direction": "North-West (315° NW) heading directly towards Mangalore APMC on NH-73",
+        "distanceRemainingKm": 26,
+        "etaMinutes": 38,
+        "milestones": [
+          {
+            "title": "Produce Loaded at Farm",
+            "status": "completed",
+            "time": "07:30 AM"
+          },
+          {
+            "title": "Dispatched via Gundya & Kokkada",
+            "status": "completed",
+            "time": "08:45 AM"
+          },
+          {
+            "title": "Passed Dharmasthala / Ujire Bypass",
+            "status": "completed",
+            "time": "09:40 AM"
+          },
+          {
+            "title": "Current: Bantwal Highway Crossing",
+            "status": "active",
+            "time": "Live Now"
+          },
+          {
+            "title": "Mandi Weighbridge & Final Unloading",
+            "status": "pending",
+            "time": "Est. 10:30 AM"
+          }
+        ]
+      },
+      "postedAt": "2026-09-25T16:39:25.590Z"
+    }
+  ],
+  "customBuses": []
+}

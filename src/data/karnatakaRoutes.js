@@ -86,6 +86,13 @@ export function calculateDistance(lat1, lon1, lat2, lon2) {
   return Math.max(12, Math.round(directDistance * 1.28));
 }
 
+// System declares and fixes ticket fare based on official Karnataka rural tariff formula
+export function calculateSystemFare(distanceKm, busType = 'Standard') {
+  const ratePerKm = (busType && (busType.includes('Cruiser') || busType.includes('Express'))) ? 1.40 : 1.25;
+  const rawFare = Math.round(distanceKm * ratePerKm);
+  return Math.max(30, Math.round(rawFare / 5) * 5); // Round to nearest ₹5, minimum ₹30
+}
+
 // Format a Date object into a readable time string (e.g. "10:25 PM")
 export function formatTime(date) {
   let hours = date.getHours();
@@ -98,7 +105,7 @@ export function formatTime(date) {
 }
 
 // Generate realistic stops with times relative to a departure Date
-function generateStopsForTime(src, dest, distanceKm, departureDate) {
+export function generateStopsForTime(src, dest, distanceKm, departureDate) {
   const numIntermediates = distanceKm > 100 ? 3 : distanceKm > 50 ? 2 : 1;
   const totalDurationMinutes = Math.max(25, Math.round((distanceKm / 45) * 60));
   const stops = [];

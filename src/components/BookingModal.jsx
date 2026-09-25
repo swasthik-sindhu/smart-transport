@@ -14,6 +14,7 @@ import {
   MapPin, 
   Download 
 } from 'lucide-react';
+import { apiCreateBooking } from '../services/api';
 
 export default function BookingModal({ isOpen, onClose, bus, currentUser, onBookingConfirmed }) {
   if (!isOpen || !bus) return null;
@@ -27,45 +28,41 @@ export default function BookingModal({ isOpen, onClose, bus, currentUser, onBook
 
   const totalFare = bus.fare * seatCount;
 
-  const handleConfirmBooking = (e) => {
+  const handleConfirmBooking = async (e) => {
     e.preventDefault();
     setIsProcessing(true);
 
-    setTimeout(() => {
-      const newBooking = {
-        bookingId: 'RL-KA-' + Math.floor(10000 + Math.random() * 90000),
-        busId: bus.id,
-        busName: bus.busName,
-        vehicleRegNo: bus.vehicleRegNo,
-        source: bus.source,
-        destination: bus.destination,
-        departureTime: bus.departureTime,
-        passengerName: passengerName.trim(),
-        passengerPhone: passengerPhone.trim(),
-        seatCount,
-        totalFare,
-        paymentMethod,
-        paymentStatus: paymentMethod === 'online' ? 'PAID (UPI Confirmed)' : 'PENDING (Cash on Boarding)',
-        bookedAt: new Date().toLocaleString(),
-      };
+    const bookingPayload = {
+      busId: bus.id,
+      busName: bus.busName,
+      vehicleRegNo: bus.vehicleRegNo,
+      source: bus.source,
+      destination: bus.destination,
+      departureTime: bus.departureTime,
+      passengerName: passengerName.trim(),
+      passengerPhone: passengerPhone.trim(),
+      seatCount,
+      totalFare,
+      paymentMethod,
+    };
 
-      // Save to localStorage
-      const existingBookings = JSON.parse(localStorage.getItem('rural_link_passenger_bookings') || '[]');
-      existingBookings.unshift(newBooking);
-      localStorage.setItem('rural_link_passenger_bookings', JSON.stringify(existingBookings));
-
-      // Decrement available seats in stored buses
-      const storedBuses = JSON.parse(localStorage.getItem('rural_link_buses') || '[]');
-      const busIdx = storedBuses.findIndex(b => b.id === bus.id);
-      if (busIdx !== -1) {
-        storedBuses[busIdx].availableSeats = Math.max(0, storedBuses[busIdx].availableSeats - seatCount);
-        localStorage.setItem('rural_link_buses', JSON.stringify(storedBuses));
-      }
-
+    try {
+      const savedBooking = await apiCreateBooking(bookingPayload);
       setIsProcessing(false);
-      setConfirmedBooking(newBooking);
-      if (onBookingConfirmed) onBookingConfirmed(newBooking);
-    }, 900);
+      setConfirmedBooking(savedBooking);
+      if (onBookingConfirmed) onBookingConfirmed(savedBooking);
+    } catch (err) {
+      console.warn('Booking fallback to offline:', err);
+      const fallbackBooking = {
+        bookingId: 'RL-KA-' + Math.floor(10000 + Math.random() * 90000),
+        ...bookingPayload,
+        paymentStatus: paymentMethod === 'online' ? 'PAID (UPI Confirmed)' : 'PENDING (Cash on Boarding)',
+        bookedAt: new Date().toLocaleString()
+      };
+      setIsProcessing(false);
+      setConfirmedBooking(fallbackBooking);
+      if (onBookingConfirmed) onBookingConfirmed(fallbackBooking);
+    }
   };
 
   const handlePrint = () => {

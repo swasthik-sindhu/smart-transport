@@ -4,8 +4,10 @@ import RegisterForm from './components/RegisterForm';
 import LoginForm from './components/LoginForm';
 import Dashboard from './components/Dashboard';
 import { UserPlus, LogIn, Sparkles, Truck, ShieldCheck } from 'lucide-react';
+import { useLanguage } from './context/LanguageContext';
 
 export default function App() {
+  const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState('register'); // 'register' | 'login'
   const [currentUser, setCurrentUser] = useState(null);
   const [prefilledName, setPrefilledName] = useState('');
@@ -66,7 +68,7 @@ export default function App() {
                 }`}
               >
                 <UserPlus className="w-4 h-4" />
-                <span>Register (Farmer / Operator)</span>
+                <span>{t('registerTab', 'Register (Farmer / Operator)')}</span>
               </button>
 
               <button
@@ -79,7 +81,7 @@ export default function App() {
                 }`}
               >
                 <LogIn className="w-4 h-4" />
-                <span>Login (Name & Password)</span>
+                <span>{t('loginTab', 'Login (Name & Password)')}</span>
               </button>
             </div>
 
