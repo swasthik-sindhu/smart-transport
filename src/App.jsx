@@ -47,7 +47,10 @@ export default function App() {
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-8">
         {currentUser ? (
           /* Logged In Dashboard View */
-          <Dashboard user={currentUser} />
+          <Dashboard 
+            user={currentUser} 
+            onUpdateUser={(updated) => setCurrentUser(updated)} 
+          />
         ) : (
           /* Auth Portal (Register & Login) */
           <div className="max-w-2xl mx-auto space-y-6">
