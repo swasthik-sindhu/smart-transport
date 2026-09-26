@@ -26,6 +26,66 @@ import RouteMapModal from './RouteMapModal';
 import BookingModal from './BookingModal';
 import { useLanguage } from '../context/LanguageContext';
 
+// Helper to normalize Karnataka place names for strict, robust matching
+export function normalizeLocName(name) {
+  if (!name) return '';
+  return name.toLowerCase()
+    .replace(/\(.*?\)/g, '') // remove parenthetical suffixes like (Mangaluru), (B.C. Road)
+    .replace(/[^a-z0-9]/g, '')
+    .trim();
+}
+
+// Strict journey verification: Matches only exact origin/destination or buses traversing the route in forward sequence
+export function doesBusServeJourney(bus, fromLoc, toLoc) {
+  if (!bus || !fromLoc || !toLoc) return false;
+  const normFrom = normalizeLocName(fromLoc);
+  const normTo = normalizeLocName(toLoc);
+  const normSrc = normalizeLocName(bus.source);
+  const normDest = normalizeLocName(bus.destination);
+
+  // Reject invalid searches where origin and destination are identical
+  if (normFrom === normTo) return false;
+
+  // 1. Direct Route Match (Origin matches fromLoc AND Destination matches toLoc)
+  const isSrcMatch = normSrc === normFrom || normSrc.includes(normFrom) || normFrom.includes(normSrc);
+  const isDestMatch = normDest === normTo || normDest.includes(normTo) || normTo.includes(normDest);
+
+  if (isSrcMatch && isDestMatch) {
+    return true;
+  }
+
+  // 2. Sequential Route Waypoints: Bus starts before/at fromLoc and terminates at/after toLoc
+  const orderedStops = [];
+  if (normSrc) orderedStops.push(normSrc);
+
+  if (bus.optimalRoute && Array.isArray(bus.optimalRoute.stops)) {
+    bus.optimalRoute.stops.forEach(s => {
+      const n = normalizeLocName(s.name);
+      if (n && !orderedStops.includes(n)) orderedStops.push(n);
+    });
+  }
+
+  if (bus.viaRoute) {
+    const viaWords = bus.viaRoute.split(/[,&/]|via/i).map(w => normalizeLocName(w)).filter(Boolean);
+    viaWords.forEach(w => {
+      if (!orderedStops.includes(w)) orderedStops.push(w);
+    });
+  }
+
+  if (normDest && !orderedStops.includes(normDest)) orderedStops.push(normDest);
+
+  // Find index of origin (fromLoc) and target (toLoc) along the ordered route
+  const fromIndex = orderedStops.findIndex(s => s && (s.includes(normFrom) || normFrom.includes(s)));
+  const toIndex = orderedStops.findIndex(s => s && (s.includes(normTo) || normTo.includes(s)));
+
+  // The bus only services this journey if both stops exist AND fromLoc is strictly BEFORE toLoc!
+  if (fromIndex !== -1 && toIndex !== -1 && fromIndex < toIndex) {
+    return true;
+  }
+
+  return false;
+}
+
 export default function PassengerDashboard({ currentLocation, currentUser }) {
   const { language, t } = useLanguage();
   // Clean up location string (e.g. "Kukke Subrahmanya, Dakshina Kannada" -> "Kukke Subrahmanya")
@@ -37,6 +97,7 @@ export default function PassengerDashboard({ currentLocation, currentUser }) {
   const [fromLoc, setFromLoc] = useState(defaultOrigin);
   const [toLoc, setToLoc] = useState('Dharmasthala');
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('departure'); // 'departure' | 'fare' | 'duration' | 'seats'
   const [isDetectingGps, setIsDetectingGps] = useState(false);
 
   // Live real-time clock state
@@ -116,27 +177,34 @@ export default function PassengerDashboard({ currentLocation, currentUser }) {
         setOperatorTripsCache(operatorTrips || []);
 
         const qFrom = fromLoc.toLowerCase().trim();
-        const qTo = toLoc.toLowerCase().trim();
-
         const operatorBuses = (operatorTrips || [])
-          .filter(t => {
-            const tSrc = (t.source || '').toLowerCase();
-            const tDest = (t.destination || '').toLowerCase();
-            const tVia = (t.viaRoute || '').toLowerCase();
-            return (
-              tSrc.includes(qFrom) || qFrom.includes(tSrc) ||
-              tDest.includes(qTo) || qTo.includes(tDest) ||
-              tVia.includes(qFrom) || tVia.includes(qTo) ||
-              tSrc === 'kukke subrahmanya' // Always show demo operator bus on nearby corridor
-            );
-          })
           .map(trip => {
-            const tSrc = KARNATAKA_LOCATIONS.find(l => l.name.toLowerCase() === trip.source.toLowerCase()) || KARNATAKA_LOCATIONS[0];
-            const tDest = KARNATAKA_LOCATIONS.find(l => l.name.toLowerCase() === trip.destination.toLowerCase()) || KARNATAKA_LOCATIONS[1];
+            const tSrc = KARNATAKA_LOCATIONS.find(l => l.name.toLowerCase() === (trip.source || '').toLowerCase()) || KARNATAKA_LOCATIONS[0];
+            const tDest = KARNATAKA_LOCATIONS.find(l => l.name.toLowerCase() === (trip.destination || '').toLowerCase()) || KARNATAKA_LOCATIONS[1];
             const distance = trip.distanceKm || 50;
             const durationMin = Math.max(25, Math.round((distance / 45) * 60));
             const depDate = new Date();
             const stopsInfo = generateStopsForTime(tSrc, tDest, distance, depDate);
+
+            // Compute mins until departure if time string like "04:30 PM"
+            let minsUntilDep = 14;
+            if (trip.departureTime) {
+              try {
+                const parts = trip.departureTime.trim().match(/(\d+):(\d+)\s*(AM|PM)/i);
+                if (parts) {
+                  let h = parseInt(parts[1], 10);
+                  const m = parseInt(parts[2], 10);
+                  const isPM = parts[3].toUpperCase() === 'PM';
+                  if (isPM && h < 12) h += 12;
+                  if (!isPM && h === 12) h = 0;
+                  const depMinutes = h * 60 + m;
+                  const curMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+                  let diff = depMinutes - curMinutes;
+                  if (diff < 0) diff += 1440; // Next day
+                  minsUntilDep = diff;
+                }
+              } catch (e) {}
+            }
 
             return {
               id: trip.id,
@@ -148,7 +216,7 @@ export default function PassengerDashboard({ currentLocation, currentUser }) {
               destination: trip.destination,
               departureTime: trip.departureTime,
               departureDateObj: depDate,
-              minsUntilDeparture: 14,
+              minsUntilDeparture: minsUntilDep,
               arrivalTime: stopsInfo.arrivalTime,
               duration: `${Math.floor(durationMin / 60) > 0 ? `${Math.floor(durationMin / 60)}h ` : ''}${durationMin % 60}m`,
               totalSeats: trip.totalSeats,
@@ -156,12 +224,13 @@ export default function PassengerDashboard({ currentLocation, currentUser }) {
               fare: trip.systemDeclaredFare || trip.fare,
               isOperatorTrip: true,
               isSystemFare: true,
+              viaRoute: trip.viaRoute,
               liveStatus: {
                 currentStop: trip.liveLocation?.currentStop || `${trip.source} Terminal (Bay #1)`,
                 lat: trip.liveLocation?.lat || tSrc.lat,
                 lng: trip.liveLocation?.lng || tSrc.lng,
                 speedKm: trip.liveLocation?.speedKm !== undefined ? trip.liveLocation.speedKm : 0,
-                etaMins: 14,
+                etaMins: minsUntilDep,
                 condition: `🟢 ${trip.status || 'Ready to Depart'} • Live GPS Active`,
                 lastUpdated: trip.liveLocation?.lastUpdated || 'Live GPS'
               },
@@ -173,7 +242,8 @@ export default function PassengerDashboard({ currentLocation, currentUser }) {
                 stops: stopsInfo.stops
               }
             };
-          });
+          })
+          .filter(b => doesBusServeJourney(b, fromLoc, toLoc));
 
         setBuses([...operatorBuses, ...generated]);
       } catch (e) {
@@ -197,18 +267,42 @@ export default function PassengerDashboard({ currentLocation, currentUser }) {
     }
   }, [currentLocation]);
 
-  // Filter buses by search query
+  // Filter and sort buses matching the exact route
   const displayedBuses = useMemo(() => {
-    if (!searchQuery.trim()) return buses;
-    const q = searchQuery.toLowerCase();
-    return buses.filter(b => 
-      b.busName.toLowerCase().includes(q) ||
-      b.busType.toLowerCase().includes(q) ||
-      b.destination.toLowerCase().includes(q) ||
-      b.source.toLowerCase().includes(q) ||
-      b.optimalRoute.stops.some(s => s.name.toLowerCase().includes(q))
-    );
-  }, [buses, searchQuery]);
+    // 1. Strict journey filtering: Only buses servicing fromLoc -> toLoc (exact match or en-route)
+    let list = buses.filter(b => doesBusServeJourney(b, fromLoc, toLoc));
+
+    // 2. Search keyword filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(b => 
+        b.busName.toLowerCase().includes(q) ||
+        b.busType.toLowerCase().includes(q) ||
+        b.operatorName.toLowerCase().includes(q) ||
+        (b.vehicleRegNo && b.vehicleRegNo.toLowerCase().includes(q)) ||
+        (b.optimalRoute?.stops && b.optimalRoute.stops.some(s => s.name.toLowerCase().includes(q)))
+      );
+    }
+
+    // 3. User-Selected Sorting
+    return list.sort((a, b) => {
+      if (sortBy === 'departure') {
+        return (a.minsUntilDeparture ?? 9999) - (b.minsUntilDeparture ?? 9999);
+      }
+      if (sortBy === 'fare') {
+        return (a.fare || 0) - (b.fare || 0);
+      }
+      if (sortBy === 'duration') {
+        const distA = a.optimalRoute?.totalDistanceKm || 50;
+        const distB = b.optimalRoute?.totalDistanceKm || 50;
+        return distA - distB;
+      }
+      if (sortBy === 'seats') {
+        return (b.availableSeats || 0) - (a.availableSeats || 0);
+      }
+      return 0;
+    });
+  }, [buses, fromLoc, toLoc, searchQuery, sortBy]);
 
   // Handle live GPS detection
   const handleDetectGPS = () => {
@@ -742,29 +836,94 @@ export default function PassengerDashboard({ currentLocation, currentUser }) {
         )}
       </section>
 
-      {/* Corridor Summary & Results Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* Corridor Summary & Results Header with Interactive Sorting Controls */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-sm">
         <div>
           <div className="flex items-center space-x-2">
-            <Bus className="w-5 h-5 text-blue-600" />
-            <h2 className="text-lg font-bold text-slate-900">
-              Departures from <span className="text-blue-700">{fromLoc}</span> to <span className="text-blue-700">{toLoc}</span>
+            <Bus className="w-5 h-5 text-blue-600 flex-shrink-0" />
+            <h2 className="text-base sm:text-lg font-bold text-slate-900">
+              Departures: <span className="text-blue-700">{fromLoc}</span> <span className="text-slate-400">→</span> <span className="text-blue-700">{toLoc}</span>
             </h2>
           </div>
-          <p className="text-xs text-slate-500 mt-0.5 flex items-center space-x-2">
+          <p className="text-xs text-slate-500 mt-1 flex items-center space-x-2">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>Live Timetable synchronized with current time ({formatTime(currentTime)})</span>
+            <span>
+              {displayedBuses.length} {displayedBuses.length === 1 ? 'bus found' : 'buses found'} (Strictly filtered to this destination & corridor) • {formatTime(currentTime)}
+            </span>
           </p>
+        </div>
+
+        {/* Sort Controls */}
+        <div className="flex items-center space-x-1.5 flex-wrap gap-y-1.5 self-start md:self-auto">
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">Sort:</span>
+
+          <button
+            type="button"
+            onClick={() => setSortBy('departure')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all cursor-pointer ${
+              sortBy === 'departure'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            <span>Earliest Departure</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSortBy('fare')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all cursor-pointer ${
+              sortBy === 'fare'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+            }`}
+          >
+            <span>₹ Lowest Fare</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSortBy('duration')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all cursor-pointer ${
+              sortBy === 'duration'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+            }`}
+          >
+            <span>⚡ Fastest Route</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSortBy('seats')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all cursor-pointer ${
+              sortBy === 'seats'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>Most Seats</span>
+          </button>
         </div>
       </div>
 
       {/* Available Buses List with Real-Time Departure Countdowns */}
       <div className="space-y-4">
-        {displayedBuses.length === 0 ? (
+        {fromLoc && toLoc && normalizeLocName(fromLoc) === normalizeLocName(toLoc) ? (
+          <div className="bg-amber-50 rounded-2xl p-6 text-center border border-amber-200 text-amber-900 space-y-2">
+            <AlertTriangle className="w-8 h-8 text-amber-600 mx-auto" />
+            <p className="font-bold text-sm">Origin and destination are the same ({fromLoc}).</p>
+            <p className="text-xs text-amber-700">Please choose a different destination from the dropdown above to view scheduled departures.</p>
+          </div>
+        ) : displayedBuses.length === 0 ? (
           <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 text-slate-500 space-y-2">
             <Bus className="w-10 h-10 text-slate-300 mx-auto" />
-            <p className="font-semibold text-sm">No buses match your search keyword "{searchQuery}".</p>
-            <p className="text-xs text-slate-400">Try clearing the search box to view upcoming departures on this corridor.</p>
+            <p className="font-semibold text-sm">
+              {searchQuery ? `No buses match "${searchQuery}" on this route.` : `No buses currently scheduled connecting ${fromLoc} to ${toLoc}.`}
+            </p>
+            <p className="text-xs text-slate-400">Only verified direct services or buses passing through this corridor are displayed.</p>
           </div>
         ) : (
           displayedBuses.map((bus) => {
@@ -790,6 +949,17 @@ export default function PassengerDashboard({ currentLocation, currentUser }) {
                     <span className="text-[11px] bg-indigo-50 text-indigo-700 font-semibold px-2 py-0.5 rounded">
                       {bus.busType}
                     </span>
+
+                    {/* Direct vs En-Route Service Badge */}
+                    {normalizeLocName(bus.source) === normalizeLocName(fromLoc) && normalizeLocName(bus.destination) === normalizeLocName(toLoc) ? (
+                      <span className="text-[10px] bg-emerald-100 text-emerald-800 font-extrabold px-2 py-0.5 rounded-full border border-emerald-300">
+                        Direct Service
+                      </span>
+                    ) : (
+                      <span className="text-[10px] bg-sky-100 text-sky-800 font-extrabold px-2 py-0.5 rounded-full border border-sky-300">
+                        En Route • Passes via {fromLoc}
+                      </span>
+                    )}
 
                     {/* Operator Live GPS Badge */}
                     {bus.isOperatorTrip && (
