@@ -1258,6 +1258,10 @@ if (fs.existsSync(distPath)) {
 }
 
 // Initialize SQLite Database and Start Express Server
+export const readyPromise = initDb().catch(err => {
+  console.error('⚠️ Database init error (running in resilient mode):', err.message);
+});
+
 async function startServer() {
   // Bind to port immediately so Render / Cloud health-checks succeed instantly
   const server = app.listen(PORT, '0.0.0.0', () => {
@@ -1266,11 +1270,16 @@ async function startServer() {
   });
 
   try {
-    await initDb();
+    await readyPromise;
     console.log(`✅ SQLite Database connected and schemas initialized`);
   } catch (err) {
     console.error('⚠️ Database init error (running in resilient mode):', err.message);
   }
 }
 
-startServer();
+// Standalone listener (Render, Railway, Docker, Localhost)
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;

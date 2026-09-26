@@ -1,7 +1,8 @@
 // Rural Link Frontend API Service
 // Connects frontend to Express backend at /api with transparent offline/localStorage fallback
-
-const API_BASE = '/api';
+const API_BASE = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
+  ? `${import.meta.env.VITE_API_URL.replace(/\/$/, '')}/api`
+  : '/api';
 
 export async function checkApiHealth() {
   try {

@@ -76,10 +76,17 @@ export default function FarmerLink({ currentLocation, currentUser }) {
   const [isCancellingShipment, setIsCancellingShipment] = useState(false);
   const [cancelSuccessMessage, setCancelSuccessMessage] = useState('');
 
-  // Load Vehicles & Farmer Requests
+  // Load Vehicles & Farmer Requests with 4-second auto-poll for multi-device sync
   useEffect(() => {
     loadVehicles();
     loadShipments();
+
+    const interval = setInterval(() => {
+      loadShipments();
+      loadVehicles();
+    }, 4000);
+
+    return () => clearInterval(interval);
   }, [selectedMandi, currentLocation]);
 
   const loadVehicles = async () => {

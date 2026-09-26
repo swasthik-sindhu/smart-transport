@@ -6,19 +6,31 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DATA_DIR = path.join(__dirname, 'data');
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+const DATA_DIR = process.env.VERCEL ? path.join('/tmp', 'rural-link-data') : path.join(__dirname, 'data');
+try {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+} catch (e) {
+  console.warn('Note on DATA_DIR creation:', e.message);
 }
 
 const DB_PATH = path.join(DATA_DIR, 'rurallink.db');
-const db = new sqlite3.Database(DB_PATH, (err) => {
-  if (err) {
-    console.error('❌ Could not connect to SQLite database:', err.message);
-  } else {
-    console.log('✅ Connected to SQLite database:', DB_PATH);
-  }
-});
+let db = null;
+let dbReady = false;
+
+try {
+  db = new sqlite3.Database(DB_PATH, (err) => {
+    if (err) {
+      console.error('❌ Could not connect to SQLite database:', err.message);
+    } else {
+      dbReady = true;
+      console.log('✅ Connected to SQLite database:', DB_PATH);
+    }
+  });
+} catch (err) {
+  console.error('⚠️ SQLite initialization caught error:', err.message);
+}
 
 // Helper functions for Promises
 export function dbRun(sql, params = []) {
