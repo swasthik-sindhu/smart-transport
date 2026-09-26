@@ -1,4 +1,3 @@
-import sqlite3 from 'sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -6,6 +5,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Writable directory for database persistence (uses /tmp on Vercel, server/data on Render/Local)
 const DATA_DIR = process.env.VERCEL ? path.join('/tmp', 'rural-link-data') : path.join(__dirname, 'data');
 try {
   if (!fs.existsSync(DATA_DIR)) {
@@ -15,296 +15,549 @@ try {
   console.warn('Note on DATA_DIR creation:', e.message);
 }
 
-const DB_PATH = path.join(DATA_DIR, 'rurallink.db');
-let db = null;
-let dbReady = false;
+const JSON_PATH = path.join(DATA_DIR, 'rurallink.json');
 
-try {
-  db = new sqlite3.Database(DB_PATH, (err) => {
-    if (err) {
-      console.error('❌ Could not connect to SQLite database:', err.message);
-    } else {
-      dbReady = true;
-      console.log('✅ Connected to SQLite database:', DB_PATH);
-    }
-  });
-} catch (err) {
-  console.error('⚠️ SQLite initialization caught error:', err.message);
+// In-memory data store with file persistence (Zero C++ bindings, 100% immune to ERR_DLOPEN_FAILED)
+let tables = {
+  users: [],
+  freight_vehicles: [],
+  freight_requests: [],
+  bookings: [],
+  travel_trips: []
+};
+
+function saveDb() {
+  try {
+    fs.writeFileSync(JSON_PATH, JSON.stringify(tables, null, 2), 'utf8');
+  } catch (err) {
+    console.error('Failed to persist database to JSON:', err.message);
+  }
 }
 
-// Helper functions for Promises
+function loadDb() {
+  try {
+    if (fs.existsSync(JSON_PATH)) {
+      const data = JSON.parse(fs.readFileSync(JSON_PATH, 'utf8'));
+      tables = {
+        users: data.users || [],
+        freight_vehicles: data.freight_vehicles || [],
+        freight_requests: data.freight_requests || [],
+        bookings: data.bookings || [],
+        travel_trips: data.travel_trips || []
+      };
+      console.log('✅ Loaded database from file with', tables.users.length, 'users,', tables.freight_vehicles.length, 'vehicles');
+    }
+  } catch (err) {
+    console.warn('Initializing fresh store, failed to read existing JSON:', err.message);
+  }
+}
+
+// ---------------------- PURE JS SQL COMPATIBILITY LAYER ---------------------- //
+
 export function dbRun(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) reject(err);
-      else resolve({ id: this.lastID, changes: this.changes });
-    });
+  return new Promise((resolve) => {
+    const trimmed = sql.trim();
+    const cleanSql = trimmed.replace(/\s+/g, ' ');
+
+    // 1. DDL: CREATE TABLE / ALTER TABLE / PRAGMA
+    if (cleanSql.toUpperCase().startsWith('CREATE TABLE') || 
+        cleanSql.toUpperCase().startsWith('ALTER TABLE') || 
+        cleanSql.toUpperCase().startsWith('PRAGMA')) {
+      const match = cleanSql.match(/CREATE TABLE (?:IF NOT EXISTS )?([a-zA-Z0-9_]+)/i);
+      if (match && match[1]) {
+        const tbl = match[1].toLowerCase();
+        if (!tables[tbl]) tables[tbl] = [];
+      }
+      return resolve({ id: null, changes: 0 });
+    }
+
+    // 2. INSERT INTO
+    if (cleanSql.toUpperCase().startsWith('INSERT INTO')) {
+      const tableMatch = cleanSql.match(/INSERT INTO ([a-zA-Z0-9_]+)\s*\(([^)]+)\)\s*VALUES\s*(.*)/is);
+      if (tableMatch) {
+        const tbl = tableMatch[1].toLowerCase();
+        if (!tables[tbl]) tables[tbl] = [];
+        const columns = tableMatch[2].split(',').map(c => c.trim().toLowerCase());
+        const valuesBlock = tableMatch[3].trim();
+
+        // Handle one or multiple row tuples: (...), (...)
+        const rowTuples = [];
+        let depth = 0;
+        let start = -1;
+        for (let i = 0; i < valuesBlock.length; i++) {
+          if (valuesBlock[i] === '(') {
+            if (depth === 0) start = i + 1;
+            depth++;
+          } else if (valuesBlock[i] === ')') {
+            depth--;
+            if (depth === 0 && start !== -1) {
+              rowTuples.push(valuesBlock.substring(start, i));
+              start = -1;
+            }
+          }
+        }
+
+        let paramIdx = 0;
+        let lastId = null;
+
+        for (const tuple of rowTuples) {
+          const rawVals = splitSqlValues(tuple);
+          const newRow = {};
+
+          columns.forEach((col, idx) => {
+            const rawVal = rawVals[idx] !== undefined ? rawVals[idx].trim() : 'NULL';
+            if (rawVal === '?') {
+              newRow[col] = params[paramIdx++];
+            } else if (rawVal.toLowerCase() === "datetime('now')") {
+              newRow[col] = new Date().toISOString();
+            } else if (rawVal.toLowerCase() === "datetime('now', '-1 hour')") {
+              newRow[col] = new Date(Date.now() - 3600000).toISOString();
+            } else if (rawVal.toLowerCase() === 'null') {
+              newRow[col] = null;
+            } else if (rawVal.startsWith("'") && rawVal.endsWith("'")) {
+              newRow[col] = rawVal.slice(1, -1);
+            } else if (!isNaN(Number(rawVal))) {
+              newRow[col] = Number(rawVal);
+            } else {
+              newRow[col] = rawVal;
+            }
+          });
+
+          // Ensure primary key exists
+          if (!newRow.id) {
+            newRow.id = 'REC-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+          }
+          lastId = newRow.id;
+
+          // Replace existing if primary key / unique matches, or append
+          const existingIdx = tables[tbl].findIndex(r => r.id === newRow.id || (newRow.name && r.name && r.name.toLowerCase() === newRow.name.toLowerCase()));
+          if (existingIdx !== -1) {
+            tables[tbl][existingIdx] = { ...tables[tbl][existingIdx], ...newRow };
+          } else {
+            tables[tbl].push(newRow);
+          }
+        }
+
+        saveDb();
+        return resolve({ id: lastId, changes: rowTuples.length });
+      }
+    }
+
+    // 3. UPDATE
+    if (cleanSql.toUpperCase().startsWith('UPDATE')) {
+      const match = cleanSql.match(/UPDATE ([a-zA-Z0-9_]+)\s+SET\s+(.+?)(?:\s+WHERE\s+(.+))?$/is);
+      if (match) {
+        const tbl = match[1].toLowerCase();
+        const setClause = match[2];
+        const whereClause = match[3] || '';
+        const rows = tables[tbl] || [];
+
+        let paramIdx = 0;
+        const setAssignments = splitSqlValues(setClause);
+        const setOps = [];
+
+        for (const assign of setAssignments) {
+          const parts = assign.split('=');
+          if (parts.length >= 2) {
+            const col = parts[0].trim().toLowerCase();
+            const expr = parts.slice(1).join('=').trim();
+            if (expr === '?') {
+              const val = params[paramIdx++];
+              setOps.push((row) => { row[col] = val; });
+            } else if (expr.toLowerCase().includes('min(total_capacity_quintals')) {
+              // Capacity restoration: MIN(total_capacity_quintals, available_capacity_quintals + ?)
+              const addVal = params[paramIdx++];
+              setOps.push((row) => {
+                const total = parseFloat(row.total_capacity_quintals) || 0;
+                const cur = parseFloat(row.available_capacity_quintals) || 0;
+                row.available_capacity_quintals = Math.min(total, cur + parseFloat(addVal));
+              });
+            } else if (expr.toLowerCase().includes('max(0, available_capacity_quintals - ?)')) {
+              // Capacity deduction: MAX(0, available_capacity_quintals - ?)
+              const subVal = params[paramIdx++];
+              setOps.push((row) => {
+                const cur = parseFloat(row.available_capacity_quintals) || 0;
+                row.available_capacity_quintals = Math.max(0, cur - parseFloat(subVal));
+              });
+            } else if (expr.startsWith("'") && expr.endsWith("'")) {
+              const val = expr.slice(1, -1);
+              setOps.push((row) => { row[col] = val; });
+            } else if (!isNaN(Number(expr))) {
+              const val = Number(expr);
+              setOps.push((row) => { row[col] = val; });
+            } else {
+              setOps.push((row) => { row[col] = expr; });
+            }
+          }
+        }
+
+        // Remaining params are for WHERE clause
+        const whereParams = params.slice(paramIdx);
+        let changes = 0;
+
+        for (const row of rows) {
+          if (evaluateWhere(row, whereClause, whereParams)) {
+            setOps.forEach(op => op(row));
+            changes++;
+          }
+        }
+
+        saveDb();
+        return resolve({ changes });
+      }
+    }
+
+    // 4. DELETE
+    if (cleanSql.toUpperCase().startsWith('DELETE FROM')) {
+      const match = cleanSql.match(/DELETE FROM ([a-zA-Z0-9_]+)(?:\s+WHERE\s+(.+))?$/is);
+      if (match) {
+        const tbl = match[1].toLowerCase();
+        const whereClause = match[2] || '';
+        const initialCount = (tables[tbl] || []).length;
+        tables[tbl] = (tables[tbl] || []).filter(row => !evaluateWhere(row, whereClause, params));
+        const changes = initialCount - tables[tbl].length;
+        saveDb();
+        return resolve({ changes });
+      }
+    }
+
+    resolve({ changes: 0 });
   });
 }
 
 export function dbGet(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
-    });
+  return new Promise((resolve) => {
+    const trimmed = sql.trim().replace(/\s+/g, ' ');
+
+    // 1. SELECT COUNT(*)
+    if (trimmed.toUpperCase().includes('SELECT COUNT(*)')) {
+      const match = trimmed.match(/FROM ([a-zA-Z0-9_]+)/i);
+      const tbl = match ? match[1].toLowerCase() : '';
+      const count = (tables[tbl] || []).length;
+      return resolve({ count });
+    }
+
+    // 2. Standard SELECT single row
+    const match = trimmed.match(/SELECT .+? FROM ([a-zA-Z0-9_]+)(?:\s+WHERE\s+(.+?))?(?:\s+ORDER BY\s+(.+))?$/is);
+    if (match) {
+      const tbl = match[1].toLowerCase();
+      const whereClause = match[2] || '';
+      let rows = [...(tables[tbl] || [])];
+
+      if (whereClause) {
+        rows = rows.filter(row => evaluateWhere(row, whereClause, params));
+      }
+
+      if (match[3]) {
+        rows = sortRows(rows, match[3]);
+      }
+
+      return resolve(rows[0] ? { ...rows[0] } : null);
+    }
+
+    resolve(null);
   });
 }
 
 export function dbAll(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
-    });
+  return new Promise((resolve) => {
+    const trimmed = sql.trim().replace(/\s+/g, ' ');
+
+    // PRAGMA table_info
+    if (trimmed.toUpperCase().startsWith('PRAGMA TABLE_INFO')) {
+      const match = trimmed.match(/PRAGMA TABLE_INFO\(([a-zA-Z0-9_]+)\)/i);
+      const tbl = match ? match[1].toLowerCase() : '';
+      const cols = tables[tbl] && tables[tbl][0] ? Object.keys(tables[tbl][0]).map(k => ({ name: k })) : [];
+      return resolve(cols);
+    }
+
+    // Standard SELECT multiple rows
+    const match = trimmed.match(/SELECT .+? FROM ([a-zA-Z0-9_]+)(?:\s+WHERE\s+(.+?))?(?:\s+ORDER BY\s+(.+))?$/is);
+    if (match) {
+      const tbl = match[1].toLowerCase();
+      const whereClause = match[2] || '';
+      let rows = [...(tables[tbl] || [])];
+
+      if (whereClause) {
+        rows = rows.filter(row => evaluateWhere(row, whereClause, params));
+      }
+
+      if (match[3]) {
+        rows = sortRows(rows, match[3]);
+      }
+
+      return resolve(rows.map(r => ({ ...r })));
+    }
+
+    resolve([]);
   });
 }
 
-// Initialize Tables and Initial Seeds
-export async function initDb() {
-  // 1. Users Table
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      role TEXT,
-      name TEXT UNIQUE,
-      phone TEXT UNIQUE,
-      email TEXT,
-      password TEXT,
-      operator_type TEXT,
-      vehicle_name TEXT,
-      vehicle_reg_no TEXT,
-      seating_capacity INTEGER,
-      loading_capacity TEXT,
-      upi_id TEXT,
-      location TEXT,
-      created_at TEXT
-    )
-  `);
+// Helper: Split comma-separated SQL arguments taking quotes and parentheses into account
+function splitSqlValues(str) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  let quoteChar = '';
+  let parenDepth = 0;
 
-  // Helper to ensure columns exist dynamically
-  const ensureColumnExists = async (table, column, definition) => {
-    try {
-      const cols = await dbAll(`PRAGMA table_info(${table})`);
-      const exists = cols.some(c => c.name === column);
-      if (!exists) {
-        await dbRun(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-        console.log(`✅ Added column ${column} to table ${table}`);
-      }
-    } catch (err) {
-      console.error(`Migration check error on ${table}.${column}:`, err.message);
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    if (inQuotes) {
+      current += char;
+      if (char === quoteChar) inQuotes = false;
+    } else if (char === "'" || char === '"') {
+      inQuotes = true;
+      quoteChar = char;
+      current += char;
+    } else if (char === '(') {
+      parenDepth++;
+      current += char;
+    } else if (char === ')') {
+      parenDepth--;
+      current += char;
+    } else if (char === ',' && parenDepth === 0) {
+      result.push(current.trim());
+      current = '';
+    } else {
+      current += char;
     }
-  };
+  }
+  if (current.trim()) result.push(current.trim());
+  return result;
+}
 
-  // 2. Freight Vehicles Table (Operator Fleets available to farmers)
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS freight_vehicles (
-      id TEXT PRIMARY KEY,
-      operator_id TEXT,
-      operator_name TEXT,
-      driver_name TEXT,
-      driver_phone TEXT,
-      vehicle_name TEXT,
-      vehicle_reg_no TEXT,
-      vehicle_type TEXT,
-      base_location TEXT,
-      destination_market TEXT,
-      via_route TEXT,
-      total_capacity_quintals REAL,
-      available_capacity_quintals REAL,
-      rate_per_quintal REAL,
-      allowed_goods TEXT,
-      is_shared INTEGER DEFAULT 1,
-      shared_pricing_rule TEXT,
-      upi_id TEXT,
-      departure_schedule TEXT,
-      live_location TEXT,
-      rating REAL
-    )
-  `);
+// Helper: Evaluate WHERE clause against a row
+function evaluateWhere(row, whereClause, params) {
+  if (!whereClause || !whereClause.trim()) return true;
+  const clean = whereClause.trim();
 
-  await ensureColumnExists('freight_vehicles', 'operator_id', 'TEXT');
-  await ensureColumnExists('freight_vehicles', 'via_route', 'TEXT');
-  await ensureColumnExists('freight_vehicles', 'allowed_goods', 'TEXT');
-  await ensureColumnExists('freight_vehicles', 'is_shared', 'INTEGER DEFAULT 1');
-  await ensureColumnExists('freight_vehicles', 'shared_pricing_rule', 'TEXT');
-  await ensureColumnExists('freight_vehicles', 'live_location', 'TEXT');
+  // Simple matches
+  let pIdx = 0;
 
-  // 3. Freight Requests Table
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS freight_requests (
-      id TEXT PRIMARY KEY,
-      farmer_name TEXT,
-      farmer_phone TEXT,
-      crop_type TEXT,
-      weight_quintals REAL,
-      pickup_location TEXT,
-      target_mandi TEXT,
-      delivery_schedule TEXT,
-      assigned_vehicle TEXT,
-      status TEXT,
-      payment_method TEXT,
-      total_freight REAL,
-      payment_status TEXT,
-      transporter_upi_id TEXT,
-      live_telemetry TEXT,
-      handling_notes TEXT,
-      posted_at TEXT
-    )
-  `);
+  // Multi-OR conditions (e.g. name = ? OR phone = ? OR email = ?)
+  if (clean.includes(' OR ') && !clean.includes(' AND ')) {
+    const orParts = clean.split(/\s+OR\s+/i);
+    for (const part of orParts) {
+      const match = part.trim().match(/^([a-zA-Z0-9_]+)\s*=\s*(.+)$/);
+      if (match) {
+        const col = match[1].toLowerCase();
+        let target = match[2].trim();
+        let compareVal = target === '?' ? params[pIdx++] : (target.startsWith("'") ? target.slice(1, -1) : target);
+        const rowVal = row[col];
+        if (rowVal !== undefined && rowVal !== null) {
+          if (String(rowVal).toLowerCase() === String(compareVal).toLowerCase()) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
 
-  await ensureColumnExists('freight_requests', 'transporter_upi_id', 'TEXT');
+  // Multi-AND conditions (e.g. id = ? AND status = ?)
+  const andParts = clean.split(/\s+AND\s+/i);
+  for (const part of andParts) {
+    // Check !=
+    let match = part.trim().match(/^([a-zA-Z0-9_]+)\s*!=\s*(.+)$/);
+    if (match) {
+      const col = match[1].toLowerCase();
+      let target = match[2].trim();
+      let compareVal = target === '?' ? params[pIdx++] : (target.startsWith("'") ? target.slice(1, -1) : target);
+      if (String(row[col] || '').toLowerCase() === String(compareVal).toLowerCase()) {
+        return false;
+      }
+      continue;
+    }
 
-  // 4. Passenger Bookings Table
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS bookings (
-      id TEXT PRIMARY KEY,
-      booking_id TEXT UNIQUE,
-      bus_id TEXT,
-      bus_name TEXT,
-      vehicle_reg_no TEXT,
-      source TEXT,
-      destination TEXT,
-      departure_time TEXT,
-      passenger_name TEXT,
-      passenger_phone TEXT,
-      seat_count INTEGER,
-      total_fare REAL,
-      payment_method TEXT,
-      payment_status TEXT,
-      booked_at TEXT
-    )
-  `);
+    // Check =
+    match = part.trim().match(/^([a-zA-Z0-9_]+)\s*=\s*(.+)$/);
+    if (match) {
+      const col = match[1].toLowerCase();
+      let target = match[2].trim();
+      let compareVal = target === '?' ? params[pIdx++] : (target.startsWith("'") ? target.slice(1, -1) : target);
+      if (String(row[col] || '').toLowerCase() !== String(compareVal).toLowerCase()) {
+        return false;
+      }
+      continue;
+    }
+  }
 
-  // 5. Travel Operator Trips Table (Route Tasks created by Travels Operators)
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS travel_trips (
-      id TEXT PRIMARY KEY,
-      operator_id TEXT,
-      operator_name TEXT,
-      operator_phone TEXT,
-      bus_name TEXT,
-      vehicle_reg_no TEXT,
-      bus_type TEXT,
-      source TEXT,
-      destination TEXT,
-      via_route TEXT,
-      departure_time TEXT,
-      departure_date TEXT,
-      total_seats INTEGER,
-      available_seats INTEGER,
-      fare REAL,
-      system_declared_fare REAL,
-      distance_km REAL,
-      status TEXT,
-      live_location TEXT,
-      created_at TEXT
-    )
-  `);
+  return true;
+}
+
+// Helper: Sort rows by ORDER BY clause
+function sortRows(rows, orderClause) {
+  const parts = orderClause.trim().split(/\s+/);
+  const col = parts[0].toLowerCase();
+  const isDesc = parts[1] && parts[1].toUpperCase() === 'DESC';
+
+  return rows.sort((a, b) => {
+    let va = a[col] !== undefined ? a[col] : '';
+    let vb = b[col] !== undefined ? b[col] : '';
+
+    if (typeof va === 'number' && typeof vb === 'number') {
+      return isDesc ? vb - va : va - vb;
+    }
+    return isDesc ? String(vb).localeCompare(String(va)) : String(va).localeCompare(String(vb));
+  });
+}
+
+// ---------------------- DATABASE INITIALIZATION & SEEDS ---------------------- //
+
+export async function initDb() {
+  loadDb();
 
   // Seed default demo users if empty
-  const userCount = await dbGet('SELECT COUNT(*) as count FROM users');
-  if (userCount.count === 0) {
-    await dbRun(`
-      INSERT INTO users (id, role, name, phone, email, password, operator_type, vehicle_name, vehicle_reg_no, seating_capacity, loading_capacity, upi_id, location, created_at)
-      VALUES 
-      ('DEMO-FARMER-1', 'farmer', 'Ramesh Patel', '9876543210', 'ramesh.farmer@rurallink.in', 'password123', NULL, NULL, NULL, NULL, NULL, NULL, 'Kukke Subrahmanya, Dakshina Kannada', datetime('now')),
-      ('DEMO-TRAVELS-1', 'operator', 'Suresh Kumar', '9845012345', 'suresh.travels@rurallink.in', 'password123', 'travels', 'Force Cruiser Rural Maxi', 'KA-21-E-4589', 18, NULL, 'sureshtravels@okaxis', 'Mangalore, Dakshina Kannada', datetime('now')),
-      ('DEMO-CARGO-1', 'operator', 'Balaji Transport Co.', '9741234567', 'balaji.cargo@rurallink.in', 'password123', 'transport', 'Tata Ace Gold (Chota Hathi)', 'KA-19-MH-8842', NULL, '1.5 Tons (1500 kg)', 'balajitransport@upi', 'Kukke Subrahmanya, Dakshina Kannada', datetime('now'))
-    `);
+  if (tables.users.length === 0) {
+    tables.users.push(
+      {
+        id: 'DEMO-FARMER-1',
+        role: 'farmer',
+        name: 'Ramesh Patel',
+        phone: '9876543210',
+        email: 'ramesh.farmer@rurallink.in',
+        password: 'password123',
+        operator_type: null,
+        vehicle_name: null,
+        vehicle_reg_no: null,
+        seating_capacity: null,
+        loading_capacity: null,
+        upi_id: null,
+        location: 'Kukke Subrahmanya, Dakshina Kannada',
+        created_at: new Date().toISOString()
+      },
+      {
+        id: 'DEMO-TRAVELS-1',
+        role: 'operator',
+        name: 'Suresh Kumar',
+        phone: '9845012345',
+        email: 'suresh.travels@rurallink.in',
+        password: 'password123',
+        operator_type: 'travels',
+        vehicle_name: 'Force Cruiser Rural Maxi',
+        vehicle_reg_no: 'KA-21-E-4589',
+        seating_capacity: 18,
+        loading_capacity: null,
+        upi_id: 'sureshtravels@okaxis',
+        location: 'Mangalore, Dakshina Kannada',
+        created_at: new Date().toISOString()
+      },
+      {
+        id: 'DEMO-CARGO-1',
+        role: 'operator',
+        name: 'Balaji Transport Co.',
+        phone: '9741234567',
+        email: 'balaji.cargo@rurallink.in',
+        password: 'password123',
+        operator_type: 'transport',
+        vehicle_name: 'Tata Ace Gold (Chota Hathi)',
+        vehicle_reg_no: 'KA-19-MH-8842',
+        seating_capacity: null,
+        loading_capacity: '1.5 Tons (1500 kg)',
+        upi_id: 'balajitransport@upi',
+        location: 'Kukke Subrahmanya, Dakshina Kannada',
+        created_at: new Date().toISOString()
+      }
+    );
   }
 
   // Seed default freight vehicles if empty
-  const vehicleCount = await dbGet('SELECT COUNT(*) as count FROM freight_vehicles');
-  if (vehicleCount.count === 0) {
-    await dbRun(`
-      INSERT INTO freight_vehicles (id, operator_name, driver_name, driver_phone, vehicle_name, vehicle_reg_no, vehicle_type, base_location, destination_market, total_capacity_quintals, available_capacity_quintals, rate_per_quintal, upi_id, departure_schedule, rating)
-      VALUES
-      ('VEH-01', 'Balaji Rural Cargo', 'Manjunath Gowda', '9844012399', 'Tata Ace Gold (Chota Hathi)', 'KA-19-MH-8842', 'Mini Truck (1.5 Ton)', 'Kukke Subrahmanya', 'Mangalore Baikampady APMC', 15, 7, 45, 'balajitransport@upi', 'Today, 04:30 PM', 4.8),
-      ('VEH-02', 'Netravati Krishi Logistics', 'Shekar Poojary', '9880098765', 'Mahindra Bolero Maxi Truck Plus', 'KA-21-B-3312', 'Pickup Truck (2.0 Ton)', 'Dharmasthala / Ujire', 'Mangalore Baikampady APMC', 20, 12, 40, 'netravati.cargo@okaxis', 'Tonight, 08:00 PM (Night Mandi Express)', 4.9),
-      ('VEH-03', 'Cauvery Grama Vahini', 'Basavarajappa', '9741001122', 'Swaraj 855 Tractor Trolley', 'KA-11-TR-9040', 'Heavy Agricultural Trolley (4.0 Ton)', 'Maddur / Mandya', 'Mandya APMC Sugar & Jaggery Market', 40, 22, 30, 'basava.tractor@upi', 'Tomorrow, 06:00 AM (Early Auction)', 4.7),
-      ('VEH-04', 'Malnad Farmers Freight Co-op', 'Girish Kumar', '9448123456', 'Eicher Pro 2049 Light Truck', 'KA-13-A-6712', 'Medium Freight Truck (3.5 Ton)', 'Hassan / Sakleshpur', 'Bengaluru Yeshwanthpur APMC', 35, 18, 65, 'malnadfreight@okicici', 'Tonight, 10:00 PM', 4.9)
-    `);
-  }
-
-  // Seed active consignment if empty
-  const reqCount = await dbGet('SELECT COUNT(*) as count FROM freight_requests');
-  if (reqCount.count === 0) {
-    const defaultTelemetry = JSON.stringify({
-      currentLocationName: 'Approaching Bantwal B.C. Road Junction',
-      lat: 12.8797,
-      lng: 75.0344,
-      speedKm: 44,
-      direction: 'North-West (315° NW) heading directly towards Mangalore APMC on NH-73',
-      distanceRemainingKm: 26,
-      etaMinutes: 38,
-      milestones: [
-        { title: 'Produce Loaded at Farm', status: 'completed', time: '07:30 AM' },
-        { title: 'Dispatched via Gundya & Kokkada', status: 'completed', time: '08:45 AM' },
-        { title: 'Passed Dharmasthala / Ujire Bypass', status: 'completed', time: '09:40 AM' },
-        { title: 'Current: Bantwal Highway Crossing', status: 'active', time: 'Live Now' },
-        { title: 'Mandi Weighbridge & Final Unloading', status: 'pending', time: 'Est. 10:30 AM' }
-      ]
-    });
-
-    const defaultVehicle = JSON.stringify({
-      vehicleRegNo: 'KA-19-MH-8842',
-      driverName: 'Manjunath Gowda',
-      driverPhone: '9844012399',
-      vehicleName: 'Tata Ace Gold'
-    });
-
-    await dbRun(`
-      INSERT INTO freight_requests (id, farmer_name, farmer_phone, crop_type, weight_quintals, pickup_location, target_mandi, delivery_schedule, assigned_vehicle, status, payment_method, total_freight, payment_status, live_telemetry, handling_notes, posted_at)
-      VALUES 
-      ('FR-KA-8801', 'Ramesh Patel', '9876543210', 'Arecanut & Tender Coconut', 8.5, 'Kukke Subrahmanya Farm Yard', 'Mangalore Baikampady APMC', 'Tomorrow, Before 09:00 AM (Morning Auction)', ?, 'In Transit', 'upi', 382.5, 'PAID via UPI', ?, 'Moisture sensitive, dry produce crates', datetime('now', '-1 hour'))
-    `, [defaultVehicle, defaultTelemetry]);
+  if (tables.freight_vehicles.length === 0) {
+    tables.freight_vehicles.push(
+      {
+        id: 'VEH-01',
+        operator_id: 'DEMO-CARGO-1',
+        operator_name: 'Balaji Rural Cargo',
+        driver_name: 'Manjunath Gowda',
+        driver_phone: '9844012399',
+        vehicle_name: 'Tata Ace Gold (Chota Hathi)',
+        vehicle_reg_no: 'KA-19-MH-8842',
+        vehicle_type: 'Mini Truck (1.5 Ton)',
+        base_location: 'Kukke Subrahmanya',
+        destination_market: 'Mangalore Baikampady APMC',
+        via_route: 'NH-73 via Gundya, Ujire Bypass & Bantwal B.C. Road',
+        total_capacity_quintals: 20,
+        available_capacity_quintals: 14,
+        rate_per_quintal: 45,
+        allowed_goods: '["Arecanut & Coconuts", "Tomatoes & Vegetables", "Sugarcane", "Paddy / Rice"]',
+        is_shared: 1,
+        shared_pricing_rule: 'Proportional Load & Distance Split',
+        upi_id: 'balajitransport@upi',
+        departure_schedule: 'Today, 04:30 PM',
+        live_location: JSON.stringify({
+          lat: 12.6625,
+          lng: 75.5900,
+          speedKm: 42,
+          currentLocationName: 'Gundya Highway Junction',
+          status: 'Accepting Produce Cargo',
+          direction: 'Heading towards Mangalore on NH-73'
+        }),
+        rating: 4.8
+      },
+      {
+        id: 'VEH-02',
+        operator_id: 'DEMO-CARGO-2',
+        operator_name: 'Netravati Krishi Logistics',
+        driver_name: 'Shekar Poojary',
+        driver_phone: '9880098765',
+        vehicle_name: 'Mahindra Bolero Maxi Truck Plus',
+        vehicle_reg_no: 'KA-21-B-3312',
+        vehicle_type: 'Pickup Truck (2.0 Ton)',
+        base_location: 'Dharmasthala / Ujire',
+        destination_market: 'Mangalore Baikampady APMC',
+        via_route: 'NH-73 via Bantwal Bypass',
+        total_capacity_quintals: 20,
+        available_capacity_quintals: 12,
+        rate_per_quintal: 40,
+        allowed_goods: '["Arecanut & Coconuts", "Tomatoes & Vegetables", "Sugarcane", "Paddy / Rice"]',
+        is_shared: 1,
+        shared_pricing_rule: 'Proportional Load & Distance Split',
+        upi_id: 'netravati.cargo@okaxis',
+        departure_schedule: 'Tonight, 08:00 PM (Night Mandi Express)',
+        live_location: null,
+        rating: 4.9
+      }
+    );
   }
 
   // Seed default travel trip if empty
-  const tripCount = await dbGet('SELECT COUNT(*) as count FROM travel_trips');
-  if (tripCount.count === 0) {
-    const demoLiveLocation = JSON.stringify({
-      lat: 12.6631,
-      lng: 75.6158,
-      speedKm: 0,
-      currentStop: 'Kukke Subrahmanya Main Bus Stand (Bay #2)',
-      direction: 'Heading North-West towards Dharmasthala on NH-73 (Compass: 310° NW)',
+  if (tables.travel_trips.length === 0) {
+    tables.travel_trips.push({
+      id: 'TRIP-KA-101',
+      operator_id: 'DEMO-TRAVELS-1',
+      operator_name: 'Suresh Kumar',
+      operator_phone: '9845012345',
+      bus_name: 'Suresh Rural Express (Force Cruiser)',
+      vehicle_reg_no: 'KA-21-E-4589',
+      bus_type: 'Force Cruiser Rural Maxi (18-Seater)',
+      source: 'Kukke Subrahmanya',
+      destination: 'Dharmasthala',
+      via_route: 'NH-73 via Gundya, Kokkada & Ujire Bypass',
+      departure_time: '04:30 PM',
+      departure_date: 'Today',
+      total_seats: 18,
+      available_seats: 11,
+      fare: 65,
+      system_declared_fare: 65,
+      distance_km: 46,
       status: 'Boarding Passengers',
-      lastUpdated: 'Live GPS'
+      live_location: JSON.stringify({
+        lat: 12.6631,
+        lng: 75.6158,
+        speedKm: 0,
+        currentStop: 'Kukke Subrahmanya Main Bus Stand (Bay #2)',
+        direction: 'Heading North-West towards Dharmasthala on NH-73 (Compass: 310° NW)',
+        status: 'Boarding Passengers',
+        lastUpdated: 'Live GPS'
+      }),
+      created_at: new Date().toISOString()
     });
-
-    await dbRun(`
-      INSERT INTO travel_trips (
-        id, operator_id, operator_name, operator_phone, bus_name, vehicle_reg_no,
-        bus_type, source, destination, via_route, departure_time, departure_date,
-        total_seats, available_seats, fare, system_declared_fare, distance_km,
-        status, live_location, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-    `, [
-      'TRIP-KA-101',
-      'DEMO-TRAVELS-1',
-      'Suresh Kumar',
-      '9845012345',
-      'Suresh Rural Express (Force Cruiser)',
-      'KA-21-E-4589',
-      'Force Cruiser Rural Maxi (18-Seater)',
-      'Kukke Subrahmanya',
-      'Dharmasthala',
-      'NH-73 via Gundya, Kokkada & Ujire Bypass',
-      '04:30 PM',
-      'Today',
-      18,
-      11,
-      65,
-      65,
-      54,
-      'Boarding',
-      demoLiveLocation
-    ]);
   }
 
-  console.log('✅ SQLite Schema initialized and seeded.');
+  saveDb();
+  console.log('✅ Rural Link Embedded Database initialized and seeded successfully.');
+  return true;
 }
 
-export default db;
+export default { dbRun, dbGet, dbAll, initDb };
