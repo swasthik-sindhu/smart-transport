@@ -86,6 +86,84 @@ export function calculateDistance(lat1, lon1, lat2, lon2) {
   return Math.max(12, Math.round(directDistance * 1.28));
 }
 
+// Find GPS coordinates for any Karnataka town, village, or APMC Mandi
+export function getLocationCoordinates(placeName) {
+  if (!placeName) return { lat: 12.8797, lng: 74.8430 };
+  const str = String(placeName).toLowerCase().trim();
+
+  // APMC Mandis & Key Regional Hub overrides
+  if (str.includes('mangalore') || str.includes('mangaluru') || str.includes('baikampady')) return { lat: 12.8797, lng: 74.8430 };
+  if (str.includes('dharmasthala')) return { lat: 12.9566, lng: 75.3802 };
+  if (str.includes('mandya')) return { lat: 12.5226, lng: 76.8974 };
+  if (str.includes('ramanagara')) return { lat: 12.7209, lng: 77.2799 };
+  if (str.includes('tiptur')) return { lat: 13.2564, lng: 76.4789 };
+  if (str.includes('yeshwanthpur') || str.includes('bengaluru') || str.includes('bangalore')) return { lat: 13.0285, lng: 77.5463 };
+  if (str.includes('bandipalya') || str.includes('mysuru') || str.includes('mysore')) return { lat: 12.2958, lng: 76.6394 };
+  if (str.includes('belagavi') || str.includes('belgaum')) return { lat: 15.8497, lng: 74.4977 };
+  if (str.includes('kukke') || str.includes('subrahmanya')) return { lat: 12.6631, lng: 75.6158 };
+  if (str.includes('bantwal') || str.includes('b.c. road')) return { lat: 12.8797, lng: 75.0344 };
+  if (str.includes('ujire') || str.includes('belthangady')) return { lat: 12.9972, lng: 75.3283 };
+  if (str.includes('puttur')) return { lat: 12.7661, lng: 75.2036 };
+  if (str.includes('sullia')) return { lat: 12.5606, lng: 75.3908 };
+  if (str.includes('udupi')) return { lat: 13.3409, lng: 74.7421 };
+  if (str.includes('karkala')) return { lat: 13.2144, lng: 74.9961 };
+  if (str.includes('kundapura')) return { lat: 13.6268, lng: 74.6917 };
+  if (str.includes('sakleshpur')) return { lat: 12.9442, lng: 75.7854 };
+  if (str.includes('hassan')) return { lat: 13.0072, lng: 76.1030 };
+  if (str.includes('channapatna')) return { lat: 12.6518, lng: 77.2089 };
+  if (str.includes('maddur')) return { lat: 12.5843, lng: 77.0450 };
+
+  // Match against full KARNATAKA_LOCATIONS
+  const matched = KARNATAKA_LOCATIONS.find(loc => {
+    const locLower = loc.name.toLowerCase();
+    const idLower = loc.id.toLowerCase();
+    return str.includes(locLower) || locLower.includes(str) || str.includes(idLower);
+  });
+  if (matched) return { lat: matched.lat, lng: matched.lng };
+
+  return { lat: 12.8797, lng: 74.8430 };
+}
+
+// Haversine distance between any two named places / mandis
+export function calculateLocationDistance(fromPlace, toPlace) {
+  const c1 = getLocationCoordinates(fromPlace);
+  const c2 = getLocationCoordinates(toPlace);
+  return calculateDistance(c1.lat, c1.lng, c2.lat, c2.lng);
+}
+
+// Calculate Proportional Freight Rate for Mid-Corridor Pickups:
+// When Transporter operates from Origin A -> Destination C, and Farmer loads from mid-point B -> C,
+// the route distance is reduced (D_BC vs D_AC) and the freight rate per quintal is proportionately reduced.
+export function calculateProportionalFreight(baseRate = 45, originA, pickupB, destinationC) {
+  const cleanBaseRate = parseFloat(baseRate) || 45;
+  const fullDistanceKm = calculateLocationDistance(originA, destinationC);
+  const farmerDistanceKm = calculateLocationDistance(pickupB, destinationC);
+
+  // Consider mid-route pickup if farmer's distance to mandi is at least 4 km less than transporter origin
+  const isMidRoute = farmerDistanceKm < (fullDistanceKm - 4);
+  const distanceReducedKm = isMidRoute ? Math.max(0, fullDistanceKm - farmerDistanceKm) : 0;
+  
+  // Calculate distance ratio (clamped between 0.25 and 1.0)
+  const ratio = isMidRoute ? Math.min(1.0, Math.max(0.25, farmerDistanceKm / fullDistanceKm)) : 1.0;
+  
+  // Proportionately reduced rate per quintal (minimum ₹15/quintal for rural viability)
+  const proportionalRate = isMidRoute ? Math.max(15, Math.round(cleanBaseRate * ratio)) : cleanBaseRate;
+  const discountPercent = isMidRoute ? Math.round(((cleanBaseRate - proportionalRate) / cleanBaseRate) * 100) : 0;
+  const savingsPerQuintal = Math.max(0, cleanBaseRate - proportionalRate);
+
+  return {
+    fullDistanceKm,
+    farmerDistanceKm,
+    distanceReducedKm,
+    isMidRoute,
+    baseRate: cleanBaseRate,
+    proportionalRate,
+    discountPercent,
+    savingsPerQuintal,
+    ratio
+  };
+}
+
 // System declares and fixes ticket fare based on official Karnataka rural tariff formula
 export function calculateSystemFare(distanceKm, busType = 'Standard') {
   const ratePerKm = (busType && (busType.includes('Cruiser') || busType.includes('Express'))) ? 1.40 : 1.25;

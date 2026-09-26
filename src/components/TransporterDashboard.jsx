@@ -1042,10 +1042,15 @@ export default function TransporterDashboard({ currentUser, currentLocation }) {
                         <Navigation className="w-3 h-3 text-emerald-700" />
                         <span>Mandi: <strong>{req.targetMandi}</strong></span>
                       </span>
+                      {req.distanceReducedKm > 0 && (
+                        <span className="inline-flex items-center space-x-1 font-bold text-emerald-900 bg-emerald-100 px-2 py-0.5 rounded-lg border border-emerald-300 text-[11px]">
+                          <span>🌾 Mid-Route Pickup ({req.routeDistanceKm} km • -{req.distanceReducedKm} km reduced)</span>
+                        </span>
+                      )}
                     </div>
 
                     {/* Farmer Identity & Payment */}
-                    <div className="flex items-center space-x-4 text-[11px] text-slate-600 pt-1">
+                    <div className="flex items-center space-x-4 text-[11px] text-slate-600 pt-1 flex-wrap gap-y-1">
                       <div>
                         Farmer: <strong className="text-slate-900">{req.farmerName}</strong>
                       </div>
@@ -1055,6 +1060,9 @@ export default function TransporterDashboard({ currentUser, currentLocation }) {
                       </div>
                       <div>
                         Freight Fare: <strong className="text-slate-900">₹{req.totalFreight}</strong>
+                        {req.ratePerQuintal && (
+                          <span className="text-[10px] text-emerald-700 ml-1 font-bold">(₹{req.ratePerQuintal}/Qtl)</span>
+                        )}
                       </div>
                       <div className="font-semibold text-slate-700">
                         Payment: <span className="text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">{req.paymentStatus}</span>
@@ -1390,6 +1398,12 @@ function FarmPickupNavModal({ isOpen, onClose, shipment, baseLocation, onStatusU
                 <span className="text-slate-400 block text-[10px]">Freight Amount:</span>
                 <span className="font-bold text-emerald-800">₹{shipment.totalFreight} ({shipment.paymentStatus})</span>
               </div>
+              {shipment.distanceReducedKm > 0 && (
+                <div className="col-span-2 p-2 bg-emerald-50 rounded-lg border border-emerald-200 text-[11px] text-emerald-950 flex items-center justify-between">
+                  <span>Corridor Route: <strong>{shipment.routeDistanceKm} km</strong> to Mandi (Mid-Route Stop • -{shipment.distanceReducedKm} km reduced)</span>
+                  <span className="font-bold text-emerald-800">Fair Rate: ₹{shipment.ratePerQuintal || Math.round(shipment.totalFreight / shipment.weightQuintals)}/Qtl</span>
+                </div>
+              )}
             </div>
 
             {shipment.handlingNotes && (

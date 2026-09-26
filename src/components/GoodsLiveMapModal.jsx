@@ -12,7 +12,7 @@ import {
   CheckCircle2, 
   ArrowUpRight 
 } from 'lucide-react';
-import { KARNATAKA_LOCATIONS } from '../data/karnatakaRoutes';
+import { KARNATAKA_LOCATIONS, getLocationCoordinates } from '../data/karnatakaRoutes';
 
 export default function GoodsLiveMapModal({ isOpen, onClose, shipment }) {
   const mapContainerRef = useRef(null);
@@ -29,18 +29,12 @@ export default function GoodsLiveMapModal({ isOpen, onClose, shipment }) {
     const { liveTelemetry, pickupLocation, targetMandi } = shipment;
 
     // Dynamically match origin coordinates from the farmer's pickup location
-    const matchedOrigin = KARNATAKA_LOCATIONS.find(l => 
-      pickupLocation?.toLowerCase().includes(l.name.toLowerCase()) || 
-      l.name.toLowerCase().includes(pickupLocation?.toLowerCase())
-    );
-    const originCoords = matchedOrigin ? [matchedOrigin.lat, matchedOrigin.lng] : [12.6631, 75.6158];
+    const originC = getLocationCoordinates(pickupLocation);
+    const originCoords = [originC.lat, originC.lng];
 
     // Dynamically match destination coordinates from the target Mandi
-    const matchedDest = KARNATAKA_LOCATIONS.find(l => 
-      targetMandi?.toLowerCase().includes(l.name.toLowerCase()) ||
-      targetMandi?.toLowerCase().includes(l.district.toLowerCase())
-    );
-    const destinationCoords = matchedDest ? [matchedDest.lat, matchedDest.lng] : [12.8698, 74.8430];
+    const destC = getLocationCoordinates(targetMandi);
+    const destinationCoords = [destC.lat, destC.lng];
 
     const currentLat = liveTelemetry?.lat || ((originCoords[0] + destinationCoords[0]) / 2);
     const currentLng = liveTelemetry?.lng || ((originCoords[1] + destinationCoords[1]) / 2);
@@ -167,10 +161,19 @@ export default function GoodsLiveMapModal({ isOpen, onClose, shipment }) {
             </div>
             <div className="flex items-center space-x-1">
               <Clock className="w-3.5 h-3.5 text-amber-600" />
-              <span>ETA: <strong>~{liveTelemetry?.etaMinutes} mins</strong> ({liveTelemetry?.distanceRemainingKm} km left)</span>
+              <span>ETA: <strong>~{liveTelemetry?.etaMinutes} mins</strong> ({shipment.routeDistanceKm || liveTelemetry?.distanceRemainingKm} km route)</span>
             </div>
           </div>
         </div>
+
+        {shipment.distanceReducedKm > 0 && (
+          <div className="bg-emerald-100/90 border-b border-emerald-300 px-4 py-2 text-[11px] text-emerald-950 font-bold flex flex-wrap items-center justify-between gap-1">
+            <span>🌾 Mid-Route Produce Loading: Pickup at {shipment.pickupLocation} (Trip: {shipment.routeDistanceKm} km, reduced by {shipment.distanceReducedKm} km from transporter origin)</span>
+            <span className="bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded font-black border border-emerald-300">
+              Proportional Rate: ₹{shipment.ratePerQuintal || Math.round(shipment.totalFreight / shipment.weightQuintals)}/Qtl
+            </span>
+          </div>
+        )}
 
         {/* Body: Map & Shipment Milestones Grid */}
         <div className="flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-3">

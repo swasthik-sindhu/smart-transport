@@ -31,6 +31,7 @@ import {
 import { fetchFreightVehicles, raiseFreightRequest, fetchFarmerFreightRequests, apiCancelFreightRequest } from '../services/api';
 import GoodsLiveMapModal from './GoodsLiveMapModal';
 import FreightBookingModal from './FreightBookingModal';
+import { calculateProportionalFreight, calculateLocationDistance } from '../data/karnatakaRoutes';
 import { useLanguage } from '../context/LanguageContext';
 
 // Major Karnataka APMC Mandis & Agricultural Markets
@@ -137,7 +138,8 @@ export default function FarmerLink({ currentLocation, currentUser }) {
 
     setIsSubmittingReq(true);
     try {
-      const estimatedRate = 42;
+      const distanceKm = calculateLocationDistance(currentLocation || 'Kukke Subrahmanya', selectedMandi);
+      const estimatedRate = Math.max(20, Math.round(distanceKm * 0.42));
       const totalFreight = Math.round(parseFloat(weightQuintals) * estimatedRate);
 
       const payload = {
@@ -151,6 +153,8 @@ export default function FarmerLink({ currentLocation, currentUser }) {
         paymentMethod: requestPaymentMethod,
         totalFreight,
         paymentStatus: requestPaymentMethod === 'upi' ? 'PAID via UPI' : 'PENDING (Cash on Pickup)',
+        routeDistanceKm: distanceKm,
+        ratePerQuintal: estimatedRate,
         handlingNotes
       };
 
@@ -338,105 +342,134 @@ export default function FarmerLink({ currentLocation, currentUser }) {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {displayedVehicles.map((veh) => (
-              <div
-                key={veh.id}
-                className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 hover:border-emerald-500 hover:shadow-md transition-all flex flex-col justify-between space-y-4"
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-bold text-base text-slate-900">{veh.vehicleName}</span>
-                    <span className="font-mono text-xs font-semibold bg-slate-100 text-slate-700 px-2 py-0.5 rounded border border-slate-200">
-                      {veh.vehicleRegNo}
-                    </span>
-                  </div>
+            {displayedVehicles.map((veh) => {
+              const pricing = calculateProportionalFreight(
+                veh.ratePerQuintal || 45,
+                veh.baseLocation,
+                currentLocation,
+                selectedMandi
+              );
 
-                  <div className="text-xs text-slate-500 mb-3 flex items-center space-x-2">
-                    <span className="bg-emerald-50 text-emerald-800 font-semibold px-2 py-0.5 rounded text-[11px]">
-                      {veh.vehicleType}
-                    </span>
-                    <span>• {veh.operatorName}</span>
-                  </div>
+              return (
+                <div
+                  key={veh.id}
+                  className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 hover:border-emerald-500 hover:shadow-md transition-all flex flex-col justify-between space-y-4"
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-bold text-base text-slate-900">{veh.vehicleName}</span>
+                      <span className="font-mono text-xs font-semibold bg-slate-100 text-slate-700 px-2 py-0.5 rounded border border-slate-200">
+                        {veh.vehicleRegNo}
+                      </span>
+                    </div>
 
-                  <div className="grid grid-cols-2 gap-2 p-3 bg-slate-50 rounded-xl text-xs border border-slate-100 mb-2">
-                    <div>
-                      <span className="text-[10px] text-slate-400 block">Available Capacity:</span>
-                      <span className="font-extrabold text-emerald-700 text-sm">{veh.availableCapacityQuintals} Quintals Space</span>
-                      {veh.isShared && (
-                        <span className="text-[10px] text-emerald-900 font-bold bg-emerald-100 px-1.5 py-0.5 rounded block mt-0.5 w-fit">
-                          Shared Load Available
+                    <div className="text-xs text-slate-500 mb-3 flex items-center space-x-2 flex-wrap gap-y-1">
+                      <span className="bg-emerald-50 text-emerald-800 font-semibold px-2 py-0.5 rounded text-[11px]">
+                        {veh.vehicleType}
+                      </span>
+                      <span>• {veh.operatorName}</span>
+                      {pricing.isMidRoute && (
+                        <span className="bg-emerald-100 text-emerald-900 font-bold px-2 py-0.5 rounded text-[10px] border border-emerald-300">
+                          Mid-Route: -{pricing.distanceReducedKm} km ({pricing.discountPercent}% Off)
                         </span>
                       )}
                     </div>
-                    <div>
-                      <span className="text-[10px] text-slate-400 block">Rate / Quintal:</span>
-                      <span className="font-extrabold text-slate-800 text-sm">₹{veh.ratePerQuintal}</span>
-                      <span className="text-[10px] text-slate-500 font-mono block mt-0.5 truncate" title={veh.upiId}>
-                        UPI: {veh.upiId || 'transporter@upi'}
-                      </span>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-[10px] text-slate-400 block">Corridor & Route:</span>
-                      <span className="font-semibold text-slate-800">{veh.viaRoute || 'State Highway Freight Corridor'}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-slate-400 block">Base Corridor:</span>
-                      <span className="font-semibold text-slate-700">{veh.baseLocation}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-slate-400 block">Dispatch Schedule:</span>
-                      <span className="font-semibold text-slate-700">{veh.departureSchedule}</span>
-                    </div>
-                  </div>
 
-                  {/* Accepted Crops if specified */}
-                  {veh.allowedGoods && veh.allowedGoods.length > 0 && (
-                    <div className="mb-2">
-                      <span className="text-[10px] text-slate-400 block mb-1">Transporter Accepts:</span>
-                      <div className="flex flex-wrap gap-1">
-                        {veh.allowedGoods.slice(0, 4).map((g, idx) => (
-                          <span key={idx} className="text-[10px] bg-emerald-50 text-emerald-950 border border-emerald-200 px-1.5 py-0.5 rounded font-medium">
-                            {typeof g === 'string' ? g.split(' (')[0] : g}
-                          </span>
-                        ))}
-                        {veh.allowedGoods.length > 4 && (
-                          <span className="text-[10px] text-slate-400 font-bold self-center">
-                            +{veh.allowedGoods.length - 4} more
+                    <div className="grid grid-cols-2 gap-2 p-3 bg-slate-50 rounded-xl text-xs border border-slate-100 mb-2">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block">Available Capacity:</span>
+                        <span className="font-extrabold text-emerald-700 text-sm">{veh.availableCapacityQuintals} Quintals Space</span>
+                        {veh.isShared && (
+                          <span className="text-[10px] text-emerald-900 font-bold bg-emerald-100 px-1.5 py-0.5 rounded block mt-0.5 w-fit">
+                            Shared Load Available
                           </span>
                         )}
                       </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block">Rate / Quintal:</span>
+                        {pricing.isMidRoute ? (
+                          <div>
+                            <div className="flex items-center space-x-1.5">
+                              <span className="font-extrabold text-emerald-700 text-base">₹{pricing.proportionalRate}</span>
+                              <span className="text-[11px] text-slate-400 line-through">₹{pricing.baseRate}</span>
+                            </div>
+                            <span className="text-[10px] font-bold text-emerald-700 block">Save ₹{pricing.savingsPerQuintal}/Qtl</span>
+                          </div>
+                        ) : (
+                          <span className="font-extrabold text-slate-800 text-sm">₹{veh.ratePerQuintal}</span>
+                        )}
+                        <span className="text-[10px] text-slate-500 font-mono block mt-0.5 truncate" title={veh.upiId}>
+                          UPI: {veh.upiId || 'transporter@upi'}
+                        </span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-[10px] text-slate-400 block">Corridor & Route:</span>
+                        <span className="font-semibold text-slate-800">{veh.viaRoute || 'State Highway Freight Corridor'}</span>
+                        {pricing.isMidRoute && (
+                          <div className="text-[10px] text-emerald-900 font-medium mt-1 bg-emerald-50/90 p-1.5 rounded-lg border border-emerald-200">
+                            Reduced Route: <strong>{pricing.farmerDistanceKm} km</strong> to Mandi (Transporter starts from {veh.baseLocation} at {pricing.fullDistanceKm} km • {pricing.distanceReducedKm} km reduced)
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block">Base Corridor:</span>
+                        <span className="font-semibold text-slate-700">{veh.baseLocation}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block">Dispatch Schedule:</span>
+                        <span className="font-semibold text-slate-700">{veh.departureSchedule}</span>
+                      </div>
                     </div>
-                  )}
 
-                  <div className="flex items-center justify-between text-xs text-slate-600 pt-1">
-                    <div className="flex items-center space-x-1">
-                      <Phone className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Driver: <strong>{veh.driverName}</strong> (+91 {veh.driverPhone})</span>
+                    {/* Accepted Crops if specified */}
+                    {veh.allowedGoods && veh.allowedGoods.length > 0 && (
+                      <div className="mb-2">
+                        <span className="text-[10px] text-slate-400 block mb-1">Transporter Accepts:</span>
+                        <div className="flex flex-wrap gap-1">
+                          {veh.allowedGoods.slice(0, 4).map((g, idx) => (
+                            <span key={idx} className="text-[10px] bg-emerald-50 text-emerald-950 border border-emerald-200 px-1.5 py-0.5 rounded font-medium">
+                              {typeof g === 'string' ? g.split(' (')[0] : g}
+                            </span>
+                          ))}
+                          {veh.allowedGoods.length > 4 && (
+                            <span className="text-[10px] text-slate-400 font-bold self-center">
+                              +{veh.allowedGoods.length - 4} more
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between text-xs text-slate-600 pt-1">
+                      <div className="flex items-center space-x-1">
+                        <Phone className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Driver: <strong>{veh.driverName}</strong> (+91 {veh.driverPhone})</span>
+                      </div>
+                      <span className="text-amber-600 font-bold text-[11px]">★ {veh.rating}</span>
                     </div>
-                    <span className="text-amber-600 font-bold text-[11px]">★ {veh.rating}</span>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-100 flex items-center space-x-2">
+                    <a
+                      href={`tel:${veh.driverPhone}`}
+                      className="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl flex items-center space-x-1 transition-colors"
+                    >
+                      <Phone className="w-3.5 h-3.5" />
+                      <span>Call Driver</span>
+                    </a>
+
+                    {/* Open Freight Booking Modal with UPI & Cash Options */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedVehicleForBooking(veh)}
+                      className="flex-1 py-2 px-3 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-sm transition-colors text-center cursor-pointer"
+                    >
+                      {pricing.isMidRoute ? `Book Freight (₹${pricing.proportionalRate}/Qtl)` : 'Book Freight (UPI / Cash)'}
+                    </button>
                   </div>
                 </div>
-
-                <div className="pt-2 border-t border-slate-100 flex items-center space-x-2">
-                  <a
-                    href={`tel:${veh.driverPhone}`}
-                    className="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl flex items-center space-x-1 transition-colors"
-                  >
-                    <Phone className="w-3.5 h-3.5" />
-                    <span>Call Driver</span>
-                  </a>
-
-                  {/* Open Freight Booking Modal with UPI & Cash Options */}
-                  <button
-                    type="button"
-                    onClick={() => setSelectedVehicleForBooking(veh)}
-                    className="flex-1 py-2 px-3 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-sm transition-colors text-center"
-                  >
-                    Book Freight (UPI / Cash)
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -542,6 +575,24 @@ export default function FarmerLink({ currentLocation, currentUser }) {
                 <span className="text-[10px] text-slate-500 mt-1 block">
                   Chosen destination wholesale auction center.
                 </span>
+              </div>
+            </div>
+
+            {/* Dynamic Calculated Distance & Tariff Preview */}
+            <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl text-xs flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center space-x-2 text-emerald-950 font-semibold">
+                <Compass className="w-4 h-4 text-emerald-700" />
+                <span>
+                  Pickup Distance to Mandi: <strong>{calculateLocationDistance(currentLocation, selectedMandi)} km</strong>
+                </span>
+              </div>
+              <div className="text-emerald-800 font-bold">
+                Tariff: ₹{Math.max(20, Math.round(calculateLocationDistance(currentLocation, selectedMandi) * 0.42))} / Quintal
+                {weightQuintals && parseFloat(weightQuintals) > 0 && (
+                  <span className="ml-2 text-emerald-950 font-extrabold bg-emerald-200/80 px-2 py-0.5 rounded">
+                    Est. Total: ₹{Math.round(parseFloat(weightQuintals) * Math.max(20, Math.round(calculateLocationDistance(currentLocation, selectedMandi) * 0.42)))}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -778,6 +829,11 @@ export default function FarmerLink({ currentLocation, currentUser }) {
                           <Navigation className="w-3.5 h-3.5 text-emerald-700" />
                           <span>Mandi: <strong className="text-emerald-900">{shipment.targetMandi}</strong></span>
                         </span>
+                        {shipment.distanceReducedKm > 0 && (
+                          <span className="inline-flex items-center space-x-1 font-bold text-emerald-900 bg-emerald-100 px-2 py-0.5 rounded-lg border border-emerald-300 text-[11px]">
+                            <span>Mid-Route ({shipment.routeDistanceKm} km • -{shipment.distanceReducedKm} km reduced)</span>
+                          </span>
+                        )}
                       </div>
 
                       {/* Real-time Telemetry & Direction Card */}

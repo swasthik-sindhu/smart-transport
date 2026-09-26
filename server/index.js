@@ -118,7 +118,13 @@ function mapRequest(row) {
     transporterUpiId: row.transporter_upi_id || (assignedVehicle && assignedVehicle.upiId) || null,
     liveTelemetry,
     handlingNotes: row.handling_notes,
-    postedAt: row.posted_at
+    postedAt: row.posted_at,
+    routeDistanceKm: row.route_distance_km || (liveTelemetry && liveTelemetry.distanceRemainingKm) || null,
+    fullRouteDistanceKm: row.full_route_distance_km || null,
+    distanceReducedKm: row.distance_reduced_km || null,
+    ratePerQuintal: row.rate_per_quintal || null,
+    baseRatePerQuintal: row.base_rate_per_quintal || null,
+    proportionalRateApplied: Boolean(row.proportional_rate_applied)
   };
 }
 
@@ -417,7 +423,13 @@ app.post('/api/farmer/freight-requests', async (req, res) => {
       paymentMethod,
       totalFreight,
       paymentStatus,
-      handlingNotes 
+      handlingNotes,
+      routeDistanceKm,
+      fullRouteDistanceKm,
+      distanceReducedKm,
+      ratePerQuintal,
+      baseRatePerQuintal,
+      proportionalRateApplied
     } = req.body;
 
     if (!cropType || !weightQuintals || !targetMandi) {
@@ -446,8 +458,8 @@ app.post('/api/farmer/freight-requests', async (req, res) => {
       lng: 75.0344,
       speedKm: 42,
       direction: `Heading towards ${targetMandi} via State Highway Link (Compass: 315° NW)`,
-      distanceRemainingKm: 34,
-      etaMinutes: 45,
+      distanceRemainingKm: parseFloat(routeDistanceKm) || 34,
+      etaMinutes: Math.max(15, Math.round((parseFloat(routeDistanceKm) || 34) * 1.3)),
       milestones: [
         { title: 'Produce Picked up at Farm', status: 'completed', time: 'Just now' },
         { title: 'Dispatched on Highway Corridor', status: 'active', time: 'In Progress' },
@@ -464,8 +476,10 @@ app.post('/api/farmer/freight-requests', async (req, res) => {
         id, farmer_name, farmer_phone, crop_type, weight_quintals,
         pickup_location, target_mandi, delivery_schedule, assigned_vehicle,
         status, payment_method, total_freight, payment_status, transporter_upi_id,
-        live_telemetry, handling_notes, posted_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        live_telemetry, handling_notes, posted_at,
+        route_distance_km, full_route_distance_km, distance_reduced_km,
+        rate_per_quintal, base_rate_per_quintal, proportional_rate_applied
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       reqId,
       farmerName || 'Ramesh Patel',
@@ -483,7 +497,13 @@ app.post('/api/farmer/freight-requests', async (req, res) => {
       targetUpiId,
       JSON.stringify(telemetryObj),
       handlingNotes || 'Standard agricultural harvest packaging',
-      nowIso
+      nowIso,
+      parseFloat(routeDistanceKm) || (telemetryObj ? telemetryObj.distanceRemainingKm : null),
+      parseFloat(fullRouteDistanceKm) || null,
+      parseFloat(distanceReducedKm) || 0,
+      parseFloat(ratePerQuintal) || null,
+      parseFloat(baseRatePerQuintal) || null,
+      proportionalRateApplied ? 1 : 0
     ]);
 
     // Note: Available capacity will be deducted as soon as the transporter accepts the load

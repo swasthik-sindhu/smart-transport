@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   X, 
   Truck, 
@@ -13,9 +13,14 @@ import {
   Clock, 
   Phone, 
   Navigation, 
-  Scale 
+  Scale,
+  TrendingDown,
+  Split,
+  Percent,
+  Sparkles
 } from 'lucide-react';
 import { raiseFreightRequest } from '../services/api';
+import { calculateProportionalFreight } from '../data/karnatakaRoutes';
 
 export default function FreightBookingModal({ 
   isOpen, 
@@ -36,8 +41,24 @@ export default function FreightBookingModal({
   const [isProcessing, setIsProcessing] = useState(false);
   const [confirmedSlip, setConfirmedSlip] = useState(null);
 
-  const ratePerQuintal = vehicle.ratePerQuintal || 45;
-  const totalFreight = Math.round(weightQuintals * ratePerQuintal);
+  // Proportional Mid-Route Distance and Rate Calculation (A -> C full route vs B -> C farmer pickup)
+  const originA = vehicle.baseLocation || 'Kukke Subrahmanya';
+  const destinationC = selectedMandi || vehicle.destinationMarket || 'Mangalore Baikampady APMC';
+  const pickupB = currentLocation || 'Farm Yard, Karnataka';
+
+  const freightPricing = useMemo(() => {
+    return calculateProportionalFreight(
+      vehicle.ratePerQuintal || 45,
+      originA,
+      pickupB,
+      destinationC
+    );
+  }, [vehicle.ratePerQuintal, originA, pickupB, destinationC]);
+
+  const effectiveRate = freightPricing.proportionalRate;
+  const totalFreight = Math.round(weightQuintals * effectiveRate);
+  const fullPriceWithoutReduction = Math.round(weightQuintals * freightPricing.baseRate);
+  const totalSavings = Math.max(0, fullPriceWithoutReduction - totalFreight);
 
   const handleConfirmBooking = async (e) => {
     e.preventDefault();
@@ -55,8 +76,8 @@ export default function FreightBookingModal({
       farmerPhone: currentUser?.phone || '9876543210',
       cropType,
       weightQuintals: parseFloat(weightQuintals),
-      pickupLocation: currentLocation || 'Farm Yard, Karnataka',
-      targetMandi: selectedMandi,
+      pickupLocation: pickupB,
+      targetMandi: destinationC,
       deliverySchedule: `${deliveryDate} • ${deliveryWindow}`,
       assignedVehicle: {
         vehicleRegNo: vehicle.vehicleRegNo,
@@ -71,7 +92,16 @@ export default function FreightBookingModal({
       transporterUpiId: transporterUpi,
       status: 'Pending Transporter Acceptance',
       paymentStatus: paymentMethod === 'upi' ? 'PAID via UPI' : 'PENDING (Cash on Pickup)',
-      handlingNotes: `Booked on ${vehicle.vehicleName} (${vehicle.vehicleRegNo}) • Transporter UPI: ${transporterUpi}`
+      routeDistanceKm: freightPricing.farmerDistanceKm,
+      fullRouteDistanceKm: freightPricing.fullDistanceKm,
+      distanceReducedKm: freightPricing.distanceReducedKm,
+      ratePerQuintal: effectiveRate,
+      baseRatePerQuintal: freightPricing.baseRate,
+      proportionalRateApplied: freightPricing.isMidRoute,
+      freightSavings: totalSavings,
+      handlingNotes: freightPricing.isMidRoute
+        ? `Booked on ${vehicle.vehicleName} (${vehicle.vehicleRegNo}) • Mid-Route Pickup at ${pickupB} (Route: ${freightPricing.farmerDistanceKm} km, reduced by ${freightPricing.distanceReducedKm} km from ${originA}) • Rate: ₹${effectiveRate}/Qtl • Transporter UPI: ${transporterUpi}`
+        : `Booked on ${vehicle.vehicleName} (${vehicle.vehicleRegNo}) • Full Route (${freightPricing.farmerDistanceKm} km) • Transporter UPI: ${transporterUpi}`
     };
 
     try {
@@ -82,7 +112,14 @@ export default function FreightBookingModal({
         waybillId: 'WB-KA-' + Math.floor(10000 + Math.random() * 90000),
         totalFreight,
         paymentMethod,
-        paymentStatus: paymentMethod === 'upi' ? `PAID via UPI (${transporterUpi})` : 'PENDING (Cash on Pickup)'
+        paymentStatus: paymentMethod === 'upi' ? `PAID via UPI (${transporterUpi})` : 'PENDING (Cash on Pickup)',
+        routeDistanceKm: freightPricing.farmerDistanceKm,
+        fullRouteDistanceKm: freightPricing.fullDistanceKm,
+        distanceReducedKm: freightPricing.distanceReducedKm,
+        effectiveRate,
+        baseRate: freightPricing.baseRate,
+        isMidRoute: freightPricing.isMidRoute,
+        totalSavings
       });
 
       if (onFreightBooked) onFreightBooked(created);
@@ -123,27 +160,70 @@ export default function FreightBookingModal({
           {!confirmedSlip ? (
             /* Booking Form */
             <form onSubmit={handleConfirmBooking} className="space-y-4">
-              {/* Pickup & Destination Summary */}
-              <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-2xl space-y-2">
+              {/* Pickup & Destination Summary with Proportional Distance Reduction */}
+              <div className="p-3.5 bg-emerald-50/80 border border-emerald-300 rounded-2xl space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">
-                    Farm Freight Route
+                  <span className="text-[10px] font-bold text-emerald-900 uppercase tracking-wider flex items-center space-x-1">
+                    <Truck className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>Farm Freight Route & Tariff</span>
                   </span>
-                  <span className="text-[11px] bg-emerald-200 text-emerald-950 font-bold px-2 py-0.5 rounded">
-                    ₹{ratePerQuintal} / Quintal
-                  </span>
+                  {freightPricing.isMidRoute ? (
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-[10px] text-slate-400 line-through">
+                        ₹{freightPricing.baseRate}/Qtl
+                      </span>
+                      <span className="text-[11px] bg-emerald-700 text-white font-black px-2 py-0.5 rounded-lg shadow-sm">
+                        ₹{effectiveRate} / Quintal
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-[11px] bg-emerald-200 text-emerald-950 font-bold px-2 py-0.5 rounded">
+                      ₹{effectiveRate} / Quintal
+                    </span>
+                  )}
                 </div>
 
-                <div className="text-xs space-y-1">
+                <div className="text-xs space-y-1.5">
                   <div className="flex items-center space-x-2 text-slate-800">
                     <MapPin className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
-                    <span>Pickup (Current Location): <strong className="text-emerald-950">{currentLocation}</strong></span>
+                    <span>Pickup (Farmer Location): <strong className="text-emerald-950">{pickupB}</strong></span>
                   </div>
                   <div className="flex items-center space-x-2 text-slate-800">
-                    <MapPin className="w-3.5 h-3.5 text-rose-600 flex-shrink-0" />
-                    <span>Destination Market: <strong className="text-slate-900">{selectedMandi}</strong></span>
+                    <Navigation className="w-3.5 h-3.5 text-rose-600 flex-shrink-0" />
+                    <span>Destination APMC Mandi: <strong className="text-slate-900">{destinationC}</strong></span>
                   </div>
                 </div>
+
+                {/* Mid-Route Distance Reduction Card */}
+                {freightPricing.isMidRoute && (
+                  <div className="mt-2 pt-2 border-t border-emerald-200/80 text-[11px] space-y-1.5 bg-white/80 p-2.5 rounded-xl border border-emerald-200 shadow-xs">
+                    <div className="flex items-center justify-between text-emerald-950 font-bold">
+                      <span className="flex items-center space-x-1 text-emerald-800">
+                        <TrendingDown className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Mid-Route Distance Reduction Applied</span>
+                      </span>
+                      <span className="bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.5 rounded font-bold">
+                        {freightPricing.discountPercent}% Off Rate
+                      </span>
+                    </div>
+                    <div className="text-slate-600 flex items-center justify-between text-[10px]">
+                      <span>Transporter Full Route ({originA} ➔ {destinationC}):</span>
+                      <span className="font-semibold text-slate-700">{freightPricing.fullDistanceKm} km</span>
+                    </div>
+                    <div className="text-emerald-900 flex items-center justify-between text-[10px] font-semibold">
+                      <span>Your Produce Route ({pickupB} ➔ {destinationC}):</span>
+                      <span className="font-bold text-emerald-800">{freightPricing.farmerDistanceKm} km</span>
+                    </div>
+                    <div className="text-slate-500 flex items-center justify-between text-[10px] pt-0.5 border-t border-emerald-100">
+                      <span>Route Distance Reduced:</span>
+                      <span className="font-bold text-emerald-700">-{freightPricing.distanceReducedKm} km ({Math.round((freightPricing.distanceReducedKm / freightPricing.fullDistanceKm) * 100)}% shorter)</span>
+                    </div>
+                    <div className="text-emerald-700 font-bold flex items-center justify-between text-[11px] pt-0.5">
+                      <span>Your Freight Savings:</span>
+                      <span className="text-emerald-800 font-black">₹{totalSavings} saved on this load!</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Crop & Load Quantity */}
@@ -313,15 +393,32 @@ export default function FreightBookingModal({
 
               {/* Total & Submit */}
               <div className="border-t border-slate-200 pt-3">
-                <div className="flex items-center justify-between mb-3 text-sm">
-                  <span className="font-semibold text-slate-600">Total Freight Charges:</span>
-                  <span className="font-black text-xl text-emerald-800">₹{totalFreight}</span>
+                <div className="space-y-1 mb-3">
+                  <div className="flex items-center justify-between text-xs text-slate-600">
+                    <span>
+                      Produce Load ({weightQuintals} Quintals × ₹{effectiveRate}/Qtl):
+                    </span>
+                    <span className="font-bold text-slate-800">₹{totalFreight}</span>
+                  </div>
+                  {totalSavings > 0 && (
+                    <div className="flex items-center justify-between text-xs text-emerald-700 font-semibold">
+                      <span className="flex items-center space-x-1">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                        <span>Distance Reduction Savings:</span>
+                      </span>
+                      <span>-₹{totalSavings} (Was ₹{fullPriceWithoutReduction})</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between text-sm pt-1 border-t border-slate-100">
+                    <span className="font-semibold text-slate-700">Total Freight Charges:</span>
+                    <span className="font-black text-xl text-emerald-800">₹{totalFreight}</span>
+                  </div>
                 </div>
 
                 <button
                   type="submit"
                   disabled={isProcessing}
-                  className="w-full py-3 bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-400 text-white font-bold rounded-xl text-sm shadow-md transition-all flex items-center justify-center space-x-2"
+                  className="w-full py-3 bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-400 text-white font-bold rounded-xl text-sm shadow-md transition-all flex items-center justify-center space-x-2 cursor-pointer"
                 >
                   {isProcessing ? (
                     <span>Confirming Freight Booking...</span>
@@ -388,10 +485,21 @@ export default function FreightBookingModal({
                     <span className="text-slate-400 block text-[10px]">Destination Mandi:</span>
                     <span className="font-bold text-emerald-800">{confirmedSlip.targetMandi}</span>
                   </div>
+                  {confirmedSlip.distanceReducedKm > 0 && (
+                    <div className="col-span-2 p-2 bg-emerald-50 rounded-lg border border-emerald-200 text-[11px] text-emerald-950 flex items-center justify-between">
+                      <span>Mid-Route Pickup: <strong>{confirmedSlip.routeDistanceKm} km</strong> (-{confirmedSlip.distanceReducedKm} km reduced)</span>
+                      <span className="font-bold text-emerald-800">Saved ₹{confirmedSlip.totalSavings}</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="border-t border-slate-200 pt-2 flex items-center justify-between">
-                  <span className="font-semibold text-slate-600">Total Freight:</span>
+                  <div>
+                    <span className="font-semibold text-slate-600 block">Total Freight:</span>
+                    {confirmedSlip.effectiveRate && (
+                      <span className="text-[10px] text-slate-500 font-semibold">Rate: ₹{confirmedSlip.effectiveRate}/Qtl</span>
+                    )}
+                  </div>
                   <span className="font-extrabold text-base text-slate-900">₹{confirmedSlip.totalFreight}</span>
                 </div>
               </div>
@@ -401,7 +509,7 @@ export default function FreightBookingModal({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="flex-1 py-2.5 px-4 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold transition-colors text-center"
+                  className="flex-1 py-2.5 px-4 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold transition-colors text-center cursor-pointer"
                 >
                   Done (View Active Shipments)
                 </button>
