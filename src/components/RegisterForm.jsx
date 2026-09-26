@@ -13,9 +13,13 @@ import {
   CreditCard, 
   Hash, 
   Weight, 
-  Users 
+  Users,
+  MessageSquare,
+  Loader2,
+  Smartphone,
+  ExternalLink
 } from 'lucide-react';
-import { apiRegister } from '../services/api';
+import { apiRegister, apiSendOtp, apiVerifyOtp } from '../services/api';
 import { useLanguage } from '../context/LanguageContext';
 
 export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin }) {
@@ -43,50 +47,90 @@ export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin }) {
 
   // OTP Authentication State
   const [otpSent, setOtpSent] = useState(false);
-  const [generatedOtp, setGeneratedOtp] = useState('');
   const [userOtp, setUserOtp] = useState('');
   const [isPhoneVerified, setIsPhoneVerified] = useState(false);
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [otpError, setOtpError] = useState('');
+  const [otpInfoMessage, setOtpInfoMessage] = useState('');
   const [resendCountdown, setResendCountdown] = useState(0);
+  const [incomingNotification, setIncomingNotification] = useState(null);
 
   // General Form Errors / Success
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Handle OTP Generation
-  const handleSendOtp = () => {
-    if (!phone || phone.trim().length < 10) {
-      setOtpError('Please enter a valid 10-digit phone number first.');
+  // Handle Dispatching OTP to the mentioned phone number
+  const handleSendOtp = async () => {
+    const cleanDigits = phone.replace(/\D/g, '');
+    if (!cleanDigits || cleanDigits.length !== 10) {
+      setOtpError('Please enter a valid 10-digit mobile number first.');
       return;
     }
     setOtpError('');
-    // Generate a 4-digit demo OTP
-    const mockOtp = Math.floor(1000 + Math.random() * 9000).toString();
-    setGeneratedOtp(mockOtp);
-    setOtpSent(true);
-    setResendCountdown(30);
+    setIsSendingOtp(true);
 
-    const timer = setInterval(() => {
-      setResendCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
+    try {
+      const res = await apiSendOtp(cleanDigits);
+      setOtpSent(true);
+      setResendCountdown(30);
+      setOtpInfoMessage(`OTP verification code dispatched to +91 ${cleanDigits.slice(0, 2)}******${cleanDigits.slice(-2)} via SMS.`);
 
-  const handleVerifyOtp = () => {
-    if (userOtp.trim() === generatedOtp.trim()) {
-      setIsPhoneVerified(true);
-      setOtpError('');
-    } else {
-      setOtpError('Invalid OTP code. Please enter the OTP displayed above.');
+      // If carrier gateway key not configured in environment, show incoming message notification banner
+      if (res.smsDeliveryNotice) {
+        setIncomingNotification(res.smsDeliveryNotice);
+        setTimeout(() => {
+          setIncomingNotification(null);
+        }, 15000);
+      } else {
+        setIncomingNotification(null);
+      }
+
+      // Start 30s resend timer
+      const timer = setInterval(() => {
+        setResendCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } catch (err) {
+      setOtpError(err.message || 'Failed to dispatch OTP. Please check your phone number and try again.');
+    } finally {
+      setIsSendingOtp(false);
     }
   };
 
-  const handleSubmit = (e) => {
+  // Verify the OTP entered by user against the backend
+  const handleVerifyOtp = async () => {
+    if (!userOtp || userOtp.trim().length !== 4) {
+      setOtpError('Please enter the 4-digit OTP code received on your phone.');
+      return;
+    }
+
+    setOtpError('');
+    setIsVerifyingOtp(true);
+
+    try {
+      const res = await apiVerifyOtp(phone, userOtp);
+      if (res.verified) {
+        setIsPhoneVerified(true);
+        setIncomingNotification(null);
+        setOtpError('');
+      } else {
+        setOtpError(res.error || 'Invalid OTP code. Please enter the exact code received on your mobile phone.');
+      }
+    } catch (err) {
+      setOtpError(err.message || 'Invalid or expired OTP code. Please check your SMS and try again.');
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setFormError('');
     setFormSuccess('');
@@ -147,7 +191,6 @@ export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin }) {
 
     // Construct User Record
     const newUser = {
-      id: 'USR-' + Date.now(),
       role,
       name: name.trim(),
       phone: phone.trim(),
@@ -158,34 +201,73 @@ export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin }) {
       vehicleRegNo: role === 'operator' ? vehicleRegNo.trim().toUpperCase() : null,
       seatingCapacity: role === 'operator' && operatorType === 'travels' ? parseInt(seatingCapacity, 10) : null,
       loadingCapacity: role === 'operator' && operatorType === 'transport' ? `${loadingCapacity} ${loadingUnit}` : null,
-      upiId: role === 'operator' ? upiId.trim() : null,
-      registeredAt: new Date().toISOString()
+      upiId: role === 'operator' ? upiId.trim() : null
     };
 
-    // Save to localStorage
-    const existingUsers = JSON.parse(localStorage.getItem('smart_rural_users') || '[]');
-    const isDuplicate = existingUsers.some(
-      u => u.name.toLowerCase() === newUser.name.toLowerCase() || u.phone === newUser.phone
-    );
-
-    if (isDuplicate) {
-      setFormError('A user with this Name or Phone number already exists. Please login instead.');
-      return;
+    setIsSubmitting(true);
+    try {
+      const registered = await apiRegister(newUser);
+      setFormSuccess('Registration successful! Redirecting to login...');
+      setTimeout(() => {
+        onRegisterSuccess(registered?.name || newUser.name);
+      }, 1200);
+    } catch (err) {
+      setFormError(err.message || 'Registration failed. A user with this Name or Phone might already exist.');
+    } finally {
+      setIsSubmitting(false);
     }
-
-    existingUsers.push(newUser);
-    localStorage.setItem('smart_rural_users', JSON.stringify(existingUsers));
-
-    setFormSuccess('Registration successful! Redirecting to login...');
-    setTimeout(() => {
-      onRegisterSuccess(newUser.name);
-    }, 1200);
   };
 
   return (
-    <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-w-2xl mx-auto">
-      {/* Header Banner */}
-      <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-slate-900 p-6 text-white text-center">
+    <div className="relative">
+      {/* Simulation / Dev Mode Notification Toast (mimics incoming phone SMS push) */}
+      {incomingNotification && (
+        <div className="fixed top-4 right-4 z-50 max-w-sm w-full bg-slate-900/95 backdrop-blur-md text-white rounded-2xl shadow-2xl border border-slate-700 p-4 transition-all duration-300">
+          <div className="flex items-start space-x-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center flex-shrink-0 shadow-inner">
+              <Smartphone className="w-5 h-5 text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-blue-400">
+                  💬 Messages • Now
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIncomingNotification(null)}
+                  className="text-slate-400 hover:text-white text-xs px-1"
+                >
+                  ✕
+                </button>
+              </div>
+              <p className="text-xs font-semibold text-slate-100 mt-0.5">
+                Rural Link Auth: +91 {incomingNotification.phone}
+              </p>
+              <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                {incomingNotification.message}
+              </p>
+              {incomingNotification.code && (
+                <div className="mt-2.5 flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserOtp(incomingNotification.code);
+                    }}
+                    className="text-[11px] bg-blue-600/80 hover:bg-blue-600 text-white font-medium px-2.5 py-1 rounded-md transition-colors flex items-center space-x-1"
+                  >
+                    <span>Auto-fill ({incomingNotification.code})</span>
+                  </button>
+                  <span className="text-[10px] text-slate-400">Tap to auto-fill code</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-w-2xl mx-auto">
+        {/* Header Banner */}
+        <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-slate-900 p-6 text-white text-center">
         <h2 className="text-2xl font-bold tracking-tight">{t('register', 'Create an Account')}</h2>
         <p className="text-blue-100 text-sm mt-1">
           {t('appSubtitle', 'Join Rural Link for smart rural transport & logistics')}
@@ -336,14 +418,14 @@ export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin }) {
           </div>
 
           {/* Phone Number + OTP Authentication */}
-          <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
+          <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-slate-700 flex items-center space-x-1">
                 <Phone className="w-3.5 h-3.5 text-slate-500" />
                 <span>Phone Number & OTP Authentication <span className="text-rose-500">*</span></span>
               </label>
               {isPhoneVerified && (
-                <span className="flex items-center space-x-1 text-xs text-blue-700 font-semibold bg-blue-100 px-2 py-0.5 rounded-full border border-blue-300">
+                <span className="flex items-center space-x-1 text-xs text-emerald-700 font-semibold bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-300">
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   <span>Verified</span>
                 </span>
@@ -356,9 +438,12 @@ export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin }) {
                 <input
                   type="tel"
                   maxLength={10}
-                  disabled={isPhoneVerified}
+                  disabled={isPhoneVerified || isSendingOtp}
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
+                  onChange={(e) => {
+                    setPhone(e.target.value.replace(/\D/g, ''));
+                    if (otpError) setOtpError('');
+                  }}
                   placeholder="9876543210"
                   className={`w-full pl-11 pr-3 py-2 text-sm border rounded-lg outline-none ${
                     isPhoneVerified
@@ -372,43 +457,91 @@ export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin }) {
                 <button
                   type="button"
                   onClick={handleSendOtp}
-                  disabled={resendCountdown > 0}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap"
+                  disabled={resendCountdown > 0 || isSendingOtp || phone.replace(/\D/g, '').length !== 10}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap flex items-center space-x-1.5"
                 >
-                  {resendCountdown > 0 ? `Resend (${resendCountdown}s)` : otpSent ? 'Resend OTP' : 'Send OTP'}
+                  {isSendingOtp ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Sending...</span>
+                    </>
+                  ) : resendCountdown > 0 ? (
+                    `Resend (${resendCountdown}s)`
+                  ) : otpSent ? (
+                    'Resend OTP'
+                  ) : (
+                    'Send OTP'
+                  )}
                 </button>
               )}
             </div>
 
-            {/* OTP Demo Simulator Alert */}
+            {/* OTP Verification Input Box (No OTP code is printed on the screen) */}
             {otpSent && !isPhoneVerified && (
-              <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs space-y-2">
-                <div className="flex items-center justify-between text-amber-900">
-                  <span className="font-semibold flex items-center">
-                    <ShieldCheck className="w-3.5 h-3.5 mr-1 text-amber-700" />
-                    SMS Gateway Simulation:
+              <div className="mt-2.5 p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-blue-950 flex items-center">
+                    <ShieldCheck className="w-4 h-4 mr-1 text-blue-600" />
+                    Enter SMS Verification Code:
                   </span>
-                  <span className="bg-amber-200 font-mono px-2 py-0.5 rounded text-amber-950 font-bold tracking-wider">
-                    OTP: {generatedOtp}
+                  <span className="text-slate-500 text-[11px] font-medium">
+                    Sent to +91 {phone.slice(0, 2)}******{phone.slice(-2)}
                   </span>
                 </div>
-                <div className="flex space-x-2 pt-1">
-                  <input
-                    type="text"
-                    maxLength={4}
-                    value={userOtp}
-                    onChange={(e) => setUserOtp(e.target.value)}
-                    placeholder="Enter 4-digit OTP"
-                    className="flex-1 px-3 py-1.5 text-sm bg-white border border-amber-300 rounded font-mono text-center tracking-widest outline-none focus:ring-2 focus:ring-amber-500"
-                  />
+
+                <div className="flex space-x-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      autoComplete="one-time-code"
+                      maxLength={4}
+                      value={userOtp}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '').slice(0, 4);
+                        setUserOtp(val);
+                        if (otpError) setOtpError('');
+                      }}
+                      placeholder="• • • •"
+                      className="w-full px-3 py-2 text-base font-mono tracking-[0.35em] text-center bg-white border border-blue-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-slate-800 placeholder:tracking-normal placeholder:text-slate-400 font-semibold"
+                    />
+                  </div>
                   <button
                     type="button"
                     onClick={handleVerifyOtp}
-                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded transition-colors"
+                    disabled={isVerifyingOtp || userOtp.length !== 4}
+                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-semibold text-xs rounded-lg transition-colors flex items-center space-x-1.5 whitespace-nowrap shadow-sm"
                   >
-                    Verify
+                    {isVerifyingOtp ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Verifying...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Verify Code</span>
+                      </>
+                    )}
                   </button>
                 </div>
+
+                <div className="text-[11px] text-blue-800/80 flex items-center justify-between">
+                  <span>Check your phone SMS messages for the 4-digit code.</span>
+                  {resendCountdown > 0 && (
+                    <span className="text-slate-400">Resend in {resendCountdown}s</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {isPhoneVerified && (
+              <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center space-x-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                <span>
+                  Mobile number <strong>+91 {phone}</strong> successfully verified!
+                </span>
               </div>
             )}
 
@@ -591,9 +724,17 @@ export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin }) {
           {/* Submit Button */}
           <button
             type="submit"
-            className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-sm shadow-md transition-all flex items-center justify-center space-x-2"
+            disabled={isSubmitting}
+            className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold rounded-xl text-sm shadow-md transition-all flex items-center justify-center space-x-2"
           >
-            <span>{t('completeRegistration', 'Complete Registration')}</span>
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Creating Account...</span>
+              </>
+            ) : (
+              <span>{t('completeRegistration', 'Complete Registration')}</span>
+            )}
           </button>
         </form>
 
@@ -609,6 +750,7 @@ export default function RegisterForm({ onRegisterSuccess, onSwitchToLogin }) {
           </button>
         </div>
       </div>
+    </div>
     </div>
   );
 }

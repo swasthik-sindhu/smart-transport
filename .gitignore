@@ -17,7 +17,9 @@ dist-ssr
 .idea
 .DS_Store
 *.suo
-*.ntvs*
-*.njsproj
-*.sln
 *.sw?
+
+# Database and runtime state
+server/data/*.db
+server/data/*.db-journal
+server/data/rurallink.json
